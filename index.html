@@ -145,7 +145,7 @@ input[type="number"].mini{width:92px}
 <body>
 <header>
   <div class="wrap">
-    <h1>Suivi pâturage — saisie rapide <span class="muted small" style="font-weight:600">v8.4</span></h1>
+    <h1>Suivi pâturage — saisie rapide <span class="muted small" style="font-weight:600">v8.5</span></h1>
     <nav class="tabs" id="mainTabs">
       <div class="tab active" data-view="saisie">Saisie</div>
       <div class="tab" data-view="lots">Lots</div>
@@ -461,8 +461,10 @@ input[type="number"].mini{width:92px}
 
 <div class="row" style="justify-content:flex-end;margin-top:10px;flex-wrap:wrap">
   <button class="btn" id="btnSyncRefs" type="button">Synchroniser référentiels</button>
+  <button class="btn warn" id="btnRestoreSheet" type="button">Restaurer depuis Google Sheet</button>
 </div>
 <div class="muted small" id="sheetRefsMsg" style="margin-top:8px">—</div>
+<div class="muted small" id="sheetRestoreMsg" style="margin-top:8px">—</div>
 
             <div class="muted small" style="margin-top:10px">
               Calendrier journalier = <b>1 ligne / jour</b> uniquement quand un lot pâture (Option 1).
@@ -1399,6 +1401,190 @@ function syncRefsToSheet(){
     setSheetRefsMsg("Erreur sync référentiels.");
   }
 }
+
+
+function setSheetRestoreMsg(msg){
+  var el=document.getElementById("sheetRestoreMsg");
+  if(el) el.textContent = msg || "—";
+}
+function sheetJSONP(params, ok, fail){
+  try{
+    var base=getSheetUrl();
+    if(!base){ if(fail) fail("URL Apps Script manquante."); return; }
+
+    params = params || {};
+    var cb = "__sheet_cb_" + Date.now() + "_" + Math.random().toString(16).slice(2);
+    params.callback = cb;
+
+    var timer=null;
+    var s=document.createElement("script");
+
+    function cleanup(){
+      try{ if(timer) clearTimeout(timer); }catch(_){}
+      try{ delete window[cb]; }catch(_){ window[cb]=undefined; }
+      try{ if(s && s.parentNode) s.parentNode.removeChild(s); }catch(_){}
+    }
+
+    window[cb]=function(payload){
+      cleanup();
+      if(ok) ok(payload);
+    };
+
+    s.onerror=function(){
+      cleanup();
+      if(fail) fail("Réponse Apps Script illisible (réseau, URL ou déploiement).");
+    };
+
+    timer=setTimeout(function(){
+      cleanup();
+      if(fail) fail("Délai dépassé : aucune réponse Apps Script.");
+    }, 20000);
+
+    var qs = new URLSearchParams(params).toString();
+    s.src = base + (base.indexOf("?")>=0 ? "&" : "?") + qs;
+    document.head.appendChild(s);
+  }catch(e){
+    if(fail) fail(e && e.message ? e.message : "Erreur JSONP.");
+  }
+}
+function _sheetRestoreNum(v){
+  if(v===null || v===undefined || v==="") return 0;
+  var n=Number(String(v).replace(",","."));
+  return isFinite(n) ? n : 0;
+}
+function _sheetRestoreBool(v){
+  var s=String(v===null||v===undefined?"":v).toLowerCase();
+  return (s==="1" || s==="true" || s==="oui" || s==="yes");
+}
+function _sheetRestoreItems(v){
+  if(!v) return {};
+  if(typeof v==="object") return v;
+  try{
+    var o=JSON.parse(String(v));
+    return (o && typeof o==="object") ? o : {};
+  }catch(_){ return {}; }
+}
+function _dedupeById(arr){
+  var seen={}, out=[];
+  for(var i=0;i<(arr||[]).length;i++){
+    var x=arr[i]||{};
+    var id=String(x.id||"").trim();
+    if(!id || seen[id]) continue;
+    seen[id]=1; out.push(x);
+  }
+  return out;
+}
+function applySheetRestorePayload(payload){
+  if(!payload || payload.ok!==true){
+    var err = payload && payload.error ? payload.error : "Export Google Sheet invalide.";
+    setSheetRestoreMsg("Échec restauration : " + err);
+    showToast("⚠️ Restauration impossible");
+    return;
+  }
+
+  var next = defaultData();
+  var oldUI = (DATA && DATA.ui) ? JSON.parse(JSON.stringify(DATA.ui)) : null;
+  if(oldUI) next.ui = oldUI;
+
+  var cats=[];
+  var srcCats=payload.categories || [];
+  for(var i=0;i<srcCats.length;i++){
+    var c=srcCats[i]||{};
+    var id=String(c.catId || c.id || "").trim();
+    if(!id) continue;
+    cats.push({ id:id, name:String(c.catName || c.name || id), ugb:_sheetRestoreNum(c.ugb), desc:"" });
+  }
+  next.categories = cats.length ? _dedupeById(cats) : defaultData().categories;
+
+  var lots=[];
+  var srcLots=payload.lots || [];
+  for(var j=0;j<srcLots.length;j++){
+    var l=srcLots[j]||{};
+    var lid=String(l.lotId || l.id || "").trim();
+    if(!lid) continue;
+    lots.push({ id:lid, name:String(l.lotName || l.name || lid) });
+  }
+
+  var moves=[];
+  var srcMoves=payload.movements || [];
+  for(var k=0;k<srcMoves.length;k++){
+    var m=srcMoves[k]||{};
+    var mid=String(m.moveId || m.id || "").trim();
+    var lotId=String(m.lotId || "").trim();
+    var padId=String(m.paddockId || "").trim();
+    var dt=String(m.dt || "").slice(0,10);
+    var type=String(m.type || "").toUpperCase();
+    if(!mid) mid = "sheet_" + k + "_" + Date.now();
+    if(!(type==="IN" || type==="OUT") || !dt || !lotId || !padId) continue;
+    moves.push({ id:mid, dt:dt, type:type, lotId:lotId, paddockId:padId, auto:_sheetRestoreBool(m.auto) });
+
+    // Fallback : reconstruire les lots depuis Mouvements si l'onglet Lots est vide
+    if(!srcLots.length && lotId){
+      var lname=String(m.lotName || lotId);
+      lots.push({ id:lotId, name:lname });
+    }
+  }
+  next.lots = _dedupeById(lots);
+
+  var comps=[];
+  var srcComps=payload.compositions || [];
+  for(var q=0;q<srcComps.length;q++){
+    var cp=srcComps[q]||{};
+    var compKey=String(cp.compKey || cp.id || "").trim();
+    var cLot=String(cp.lotId || "").trim();
+    var eff=String(cp.eff || "").slice(0,10);
+    var items=_sheetRestoreItems(cp.items_json || cp.items || "");
+    if(!cLot || !eff) continue;
+    comps.push({ id: compKey || (cLot+"@"+eff), lotId:cLot, eff:eff, items:items });
+  }
+  next.compositions = comps;
+
+  next.meta = next.meta || {};
+  next.meta.createdAt = (new Date()).toISOString();
+  next.meta.restoredFromSheetAt = (new Date()).toISOString();
+  next.meta.sheetExportedAt = payload.exportedAt || "";
+  next.meta.lastBackupAt = "";
+  next.meta.lastBackupMovesLen = next.movements.length;
+  next.meta.lastBackupName = "Restauration Google Sheet";
+
+  DATA = normalizeData(next);
+  resetDraft();
+  saveData();
+
+  try{ renderSheetSyncStatus(); }catch(_){}
+  try{ renderBackupStatus(); }catch(_){}
+  try{ rebuildMapStats(true); syncMapUI(); drawMap(); }catch(_){}
+
+  var msg = "Restauration OK — Lots: " + DATA.lots.length + " • Catégories: " + DATA.categories.length + " • Compositions: " + DATA.compositions.length + " • Mouvements: " + DATA.movements.length + ".";
+  setSheetRestoreMsg(msg);
+  showToast("✅ Données restaurées depuis Google Sheet");
+}
+function restoreFromSheet(){
+  try{
+    var url=getSheetUrl();
+    var sec=getSheetSecret();
+    if(!url){ setSheetRestoreMsg("Renseignez d’abord l’URL Apps Script."); showToast("⚠️ URL manquante"); return; }
+    if(!sec){ setSheetRestoreMsg("Renseignez d’abord le secret."); showToast("⚠️ Secret manquant"); return; }
+
+    if(!confirm("Restaurer depuis Google Sheet va REMPLACER les données locales de cette installation (lots, catégories, compositions, mouvements).\\n\\nContinuer ?")){
+      return;
+    }
+
+    setSheetRestoreMsg("Lecture du Google Sheet en cours…");
+    sheetJSONP(
+      { secret:sec, action:"export" },
+      applySheetRestorePayload,
+      function(err){
+        setSheetRestoreMsg("Échec restauration : " + err);
+        showToast("⚠️ Restauration échouée");
+      }
+    );
+  }catch(e){
+    console.warn(e);
+    setSheetRestoreMsg("Erreur restauration : " + (e && e.message ? e.message : "exception"));
+  }
+}
+
 
 /* Utilitaires */
 function uuid(){ return "id_" + Math.random().toString(16).slice(2) + "_" + Date.now().toString(16); }
@@ -3416,7 +3602,7 @@ function renderAll(){
 /* INIT */
 var DATA=null;
 document.addEventListener("DOMContentLoaded", function(){
-  console.log("Suivi pâturage build v8.4");
+  console.log("Suivi pâturage build v8.5");
   applyCustomMapIfAny();
   buildPadMeta();
   DATA=loadData();
@@ -3534,6 +3720,7 @@ on("btnSaveCats","click",saveCatsFromUI);
   on("btnFlushSheet","click",flushMovesToSheet);
   on("btnTestSheet","click",testSheetSync);
   on("btnSyncRefs","click",syncRefsToSheet);
+  on("btnRestoreSheet","click",restoreFromSheet);
 
   // Import fond raster (image + world file)
   on("btnImportRaster","click",importRaster);
