@@ -145,7 +145,7 @@ input[type="number"].mini{width:92px}
 <body>
 <header>
   <div class="wrap">
-    <h1>Suivi pâturage — saisie rapide <span class="muted small" style="font-weight:600">v8.5</span></h1>
+    <h1>Suivi pâturage — saisie rapide <span class="muted small" style="font-weight:600">v8.6</span></h1>
     <nav class="tabs" id="mainTabs">
       <div class="tab active" data-view="saisie">Saisie</div>
       <div class="tab" data-view="lots">Lots</div>
@@ -1464,6 +1464,77 @@ function _sheetRestoreItems(v){
     return (o && typeof o==="object") ? o : {};
   }catch(_){ return {}; }
 }
+
+function _sheetRestoreNormKey(s){
+  return String(s===null||s===undefined?"":s)
+    .normalize("NFD").replace(/[\u0300-\u036f]/g,"")
+    .toLowerCase().replace(/[^a-z0-9]/g,"");
+}
+function _sheetRestoreGet(row, keys){
+  if(!row) return "";
+  for(var i=0;i<keys.length;i++){
+    var k=keys[i];
+    if(row[k]!==undefined && row[k]!==null && String(row[k]).trim()!=="") return row[k];
+  }
+  var wanted={};
+  for(var j=0;j<keys.length;j++) wanted[_sheetRestoreNormKey(keys[j])]=true;
+  var ks=Object.keys(row);
+  for(var q=0;q<ks.length;q++){
+    if(wanted[_sheetRestoreNormKey(ks[q])]){
+      var v=row[ks[q]];
+      if(v!==undefined && v!==null && String(v).trim()!=="") return v;
+    }
+  }
+  return "";
+}
+function _sheetRestoreNormText(s){
+  return String(s===null||s===undefined?"":s)
+    .normalize("NFD").replace(/[\u0300-\u036f]/g,"")
+    .toLowerCase().trim();
+}
+function _sheetRestoreType(v){
+  var s=_sheetRestoreNormText(v);
+  if(s==="in" || s==="entree" || s==="entrée" || s==="entrer" || s==="e" || s==="1") return "IN";
+  if(s==="out" || s==="sortie" || s==="sortir" || s==="s" || s==="0") return "OUT";
+  return "";
+}
+function _sheetRestoreDate(v){
+  if(v===null || v===undefined || v==="") return "";
+  var s=String(v).trim();
+  var m=s.match(/^(\d{4})-(\d{2})-(\d{2})/);
+  if(m) return m[1]+"-"+m[2]+"-"+m[3];
+  m=s.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})/);
+  if(m) return m[3]+"-"+("0"+m[2]).slice(-2)+"-"+("0"+m[1]).slice(-2);
+  m=s.match(/^(\d{1,2})-(\d{1,2})-(\d{4})/);
+  if(m) return m[3]+"-"+("0"+m[2]).slice(-2)+"-"+("0"+m[1]).slice(-2);
+  return s.slice(0,10);
+}
+function _sheetRestoreFindLotId(v, lots){
+  var s=String(v||"").trim();
+  if(!s) return "";
+  for(var i=0;i<(lots||[]).length;i++){
+    if(String(lots[i].id)===s) return lots[i].id;
+  }
+  var ns=_sheetRestoreNormText(s);
+  for(var j=0;j<(lots||[]).length;j++){
+    if(_sheetRestoreNormText(lots[j].name)===ns) return lots[j].id;
+  }
+  return s;
+}
+function _sheetRestoreFindPaddockId(v){
+  var s=String(v||"").trim();
+  if(!s) return "";
+  try{ if(getPaddockMeta(s)) return s; }catch(_){}
+  var ns=_sheetRestoreNormText(s);
+  try{
+    for(var i=0;i<PAD_META.length;i++){
+      var p=PAD_META[i];
+      if(_sheetRestoreNormText(p.id)===ns || _sheetRestoreNormText(p.name)===ns) return p.id;
+    }
+  }catch(_){}
+  return s;
+}
+
 function _dedupeById(arr){
   var seen={}, out=[];
   for(var i=0;i<(arr||[]).length;i++){
@@ -1507,24 +1578,49 @@ function applySheetRestorePayload(payload){
 
   var moves=[];
   var srcMoves=payload.movements || [];
+  var ignoredMoves=0, ignoredReasons={};
+
   for(var k=0;k<srcMoves.length;k++){
     var m=srcMoves[k]||{};
-    var mid=String(m.moveId || m.id || "").trim();
-    var lotId=String(m.lotId || "").trim();
-    var padId=String(m.paddockId || "").trim();
-    var dt=String(m.dt || "").slice(0,10);
-    var type=String(m.type || "").toUpperCase();
+
+    var mid=String(_sheetRestoreGet(m, ["moveId","id","ID","Identifiant","identifiant","movementId"]) || "").trim();
+    var dt=_sheetRestoreDate(_sheetRestoreGet(m, ["dt","date","Date","jour","Jour"]));
+    var type=_sheetRestoreType(_sheetRestoreGet(m, ["type","Type","mouvement","Mouvement","sens","Sens"]));
+
+    var lotRaw=_sheetRestoreGet(m, ["lotId","lot_id","id_lot","LotId","lot","Lot","lotName","Nom lot","nom_lot","lotName"]);
+    var lotId=_sheetRestoreFindLotId(lotRaw, lots);
+
+    var padRaw=_sheetRestoreGet(m, ["paddockId","paddock_id","id_paddock","PaddockId","paddock","Paddock","paddockName","Nom paddock","nom_paddock","parc","Parc"]);
+    var padId=_sheetRestoreFindPaddockId(padRaw);
+
     if(!mid) mid = "sheet_" + k + "_" + Date.now();
-    if(!(type==="IN" || type==="OUT") || !dt || !lotId || !padId) continue;
-    moves.push({ id:mid, dt:dt, type:type, lotId:lotId, paddockId:padId, auto:_sheetRestoreBool(m.auto) });
+
+    var reason="";
+    if(!(type==="IN" || type==="OUT")) reason="type";
+    else if(!dt) reason="date";
+    else if(!lotId) reason="lot";
+    else if(!padId) reason="paddock";
+
+    if(reason){
+      ignoredMoves++;
+      ignoredReasons[reason]=(ignoredReasons[reason]||0)+1;
+      continue;
+    }
+
+    moves.push({ id:mid, dt:dt, type:type, lotId:lotId, paddockId:padId, auto:_sheetRestoreBool(_sheetRestoreGet(m, ["auto","Auto"])) });
 
     // Fallback : reconstruire les lots depuis Mouvements si l'onglet Lots est vide
     if(!srcLots.length && lotId){
-      var lname=String(m.lotName || lotId);
+      var lname=String(_sheetRestoreGet(m, ["lotName","Lot","lot","nom_lot","Nom lot"]) || lotId);
       lots.push({ id:lotId, name:lname });
     }
   }
   next.lots = _dedupeById(lots);
+  next.movements = _dedupeById(moves).sort(function(a,b){
+    if(a.dt<b.dt) return -1;
+    if(a.dt>b.dt) return 1;
+    return String(a.id).localeCompare(String(b.id));
+  });
 
   var comps=[];
   var srcComps=payload.compositions || [];
@@ -1556,6 +1652,11 @@ function applySheetRestorePayload(payload){
   try{ rebuildMapStats(true); syncMapUI(); drawMap(); }catch(_){}
 
   var msg = "Restauration OK — Lots: " + DATA.lots.length + " • Catégories: " + DATA.categories.length + " • Compositions: " + DATA.compositions.length + " • Mouvements: " + DATA.movements.length + ".";
+  if(typeof ignoredMoves!=="undefined" && ignoredMoves>0){
+    var rr=[];
+    for(var rk in ignoredReasons){ rr.push(rk + ": " + ignoredReasons[rk]); }
+    msg += " Lignes Mouvements ignorées: " + ignoredMoves + " (" + rr.join(", ") + ").";
+  }
   setSheetRestoreMsg(msg);
   showToast("✅ Données restaurées depuis Google Sheet");
 }
@@ -3602,7 +3703,7 @@ function renderAll(){
 /* INIT */
 var DATA=null;
 document.addEventListener("DOMContentLoaded", function(){
-  console.log("Suivi pâturage build v8.5");
+  console.log("Suivi pâturage build v8.6");
   applyCustomMapIfAny();
   buildPadMeta();
   DATA=loadData();
