@@ -13,6 +13,9 @@
 }
 *{box-sizing:border-box}
 body{margin:0;font-family:system-ui,-apple-system,Segoe UI,Roboto,Helvetica,Arial;background:linear-gradient(180deg,#060913 0%,#0b1220 60%);color:var(--txt)}
+/* Empêche la page entière de défiler vers la droite (les grands tableaux/calendriers défilent DANS leur propre cadre).
+   overflow-x:clip clippe sans créer de conteneur de défilement → ne casse pas les en-têtes figés (position:sticky). */
+html,body{overflow-x:clip;max-width:100%}
 header{position:sticky;top:0;z-index:10;background:rgba(6,9,19,.92);backdrop-filter:blur(10px);border-bottom:1px solid var(--border)}
 .wrap{max-width:1100px;margin:0 auto;padding:14px 14px 22px}
 h1{margin:0;font-size:16px;letter-spacing:.2px}
@@ -21,10 +24,16 @@ nav.tabs{display:flex;gap:10px;flex-wrap:wrap;margin-top:10px}
 .tab.active{background:rgba(96,165,250,.18);border-color:rgba(96,165,250,.5)}
 .tab.tab-quiet{opacity:.5;color:var(--muted);font-weight:600;font-size:16px;line-height:1}
 .tab.tab-quiet.active{opacity:1;color:var(--txt)}
+/* Mobile : onglets principaux sur UNE seule rangée (4 réguliers + ⚙ compact) au lieu de 2 lignes */
+@media (max-width:640px){
+  nav.tabs{display:grid;grid-template-columns:repeat(4,1fr) auto;gap:6px;margin-top:10px}
+  nav.tabs .tab{padding:10px 4px;text-align:center;font-size:13px;border-radius:12px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  nav.tabs .tab.tab-quiet{font-size:15px;padding:10px 10px}
+}
 .view{display:none}
 .view.active{display:block}
-.grid{display:grid;grid-template-columns:1.1fr .9fr;gap:14px}
-@media (max-width:900px){.grid{grid-template-columns:1fr}}
+.grid{display:grid;grid-template-columns:minmax(0,1.1fr) minmax(0,.9fr);gap:14px}
+@media (max-width:900px){.grid{grid-template-columns:minmax(0,1fr)}}
 .card{background:rgba(17,26,46,.88);border:1px solid var(--border);border-radius:var(--radius);box-shadow:var(--shadow);padding:14px}
 .card h2{margin:0 0 10px;font-size:14px}
 .row{display:flex;gap:10px;align-items:center;flex-wrap:wrap}
@@ -61,7 +70,7 @@ nav.tabs{display:flex;gap:10px;flex-wrap:wrap;margin-top:10px}
   color:#111827;
   text-shadow:0 1px 0 rgba(255,255,255,.35);
 }
-.stack{display:grid;grid-template-columns:1fr;gap:var(--gap);}
+.stack{display:grid;grid-template-columns:minmax(0,1fr);gap:var(--gap);}
 .toast{
   position:fixed;
   left:50%;
@@ -230,7 +239,7 @@ html[data-theme="light"] #themeToggle{background:rgba(20,30,55,.05)}
 <header>
   <div class="wrap">
     <div class="row" style="justify-content:space-between;align-items:center;flex-wrap:nowrap;gap:8px">
-      <h1>Suivi pâturage — saisie rapide <span class="muted small" style="font-weight:600">v8.28</span></h1>
+      <h1>Suivi pâturage — saisie rapide <span class="muted small" style="font-weight:600">v8.29</span></h1>
       <button id="themeToggle" class="btn small" type="button" title="Basculer clair / sombre" aria-label="Basculer le thème clair ou sombre" style="flex:0 0 auto">☀️</button>
     </div>
     <nav class="tabs" id="mainTabs">
@@ -479,7 +488,7 @@ html[data-theme="light"] #themeToggle{background:rgba(20,30,55,.05)}
       <h2>Admin</h2>
       <div class="subtabs" id="adminTabs">
         <div class="subtab active" data-sub="journal">Journal</div>
-        <div class="subtab" data-sub="data">Données & Synchro</div>
+        <div class="subtab" data-sub="data">Synchro</div>
         <div class="subtab" data-sub="params">Paramètres</div>
       </div>
       <div class="hr"></div>
@@ -2884,11 +2893,16 @@ function renameLot(){
 }
 function deleteLot(){
   if(!EDIT_LOT_ID) return;
-  if(!confirm("Supprimer ce troupeau ?")) return;
-  var out=[]; for(var i=0;i<DATA.lots.length;i++) if(DATA.lots[i].id!==EDIT_LOT_ID) out.push(DATA.lots[i]);
+  var delId=EDIT_LOT_ID;
+  var lot=byId(DATA.lots, delId);
+  if(!confirm("Supprimer définitivement le troupeau « "+(lot?lot.name:delId)+" » ?\n\nIl sera aussi retiré du Google Sheet (s'il est configuré).")) return;
+  var out=[]; for(var i=0;i<DATA.lots.length;i++) if(DATA.lots[i].id!==delId) out.push(DATA.lots[i]);
   DATA.lots=out; EDIT_LOT_ID=""; saveData();
 
-  try{ var sec=getSheetSecret(); if(sec){ sheetSendGET({secret:sec, entity:"lot", op:"delete", lotId:EDIT_LOT_ID, deviceId:getDeviceId()}); } }catch(_){ }
+  // Propage la suppression au Sheet avec le BON id (capturé avant le reset)
+  try{ var sec=getSheetSecret(); if(sec){ sheetSendGET({secret:sec, entity:"lot", op:"delete", lotId:delId, deviceId:getDeviceId()}); } }catch(_){ }
+
+  try{ renderLotsView(); renderAll(); }catch(_){ }
 }
 
 /* Journal */
@@ -4549,7 +4563,7 @@ function renderAll(){
 /* INIT */
 var DATA=null;
 document.addEventListener("DOMContentLoaded", function(){
-  console.log("Suivi pâturage build v8.28 (mode clair garanti ; carte mobile 360px ; retrait bouton Annuler dernier mouvement ; P1 pastilles ; fix carte rAF)");
+  console.log("Suivi pâturage build v8.29 (onglets mobile 1 rangée ; scroll horizontal page bloqué ; sous-onglet Synchro ; suppression définitive troupeau corrigée)");
   applyCustomMapIfAny();
   buildPadMeta();
   DATA=loadData();
