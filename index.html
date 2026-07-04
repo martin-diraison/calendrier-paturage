@@ -239,7 +239,7 @@ html[data-theme="light"] #themeToggle{background:rgba(20,30,55,.05)}
 <header>
   <div class="wrap">
     <div class="row" style="justify-content:space-between;align-items:center;flex-wrap:nowrap;gap:8px">
-      <h1>Suivi pâturage — saisie rapide <span class="muted small" style="font-weight:600">v8.29</span></h1>
+      <h1>Suivi pâturage — saisie rapide <span class="muted small" style="font-weight:600">v8.30</span></h1>
       <button id="themeToggle" class="btn small" type="button" title="Basculer clair / sombre" aria-label="Basculer le thème clair ou sombre" style="flex:0 0 auto">☀️</button>
     </div>
     <nav class="tabs" id="mainTabs">
@@ -510,20 +510,26 @@ html[data-theme="light"] #themeToggle{background:rgba(20,30,55,.05)}
           <div class="card">
             <h2>Sauvegarde</h2>
             <div class="row" style="flex-wrap:wrap">
-              <div class="pill"><strong>Dernière</strong> <span id="bkLast" class="muted">—</span></div>
-              <div class="pill"><strong>Non sauvegardés</strong> <span id="bkUnsaved" class="muted">0</span></div>
-              <div class="pill"><strong>Stockage persistant</strong> <span id="bkPersist" class="muted">—</span></div>
-            </div>
-            <div class="hr"></div>
-            <div class="row" style="flex-wrap:wrap">
               <button class="btn primary" id="btnQuickBackup" type="button">Sauvegarder (ZIP)</button>
-              <button class="btn" id="btnBackup">Sauvegarder (JSON)</button>
               <label class="btn" for="restoreFile">Restaurer un fichier</label>
               <input id="restoreFile" type="file" accept="application/json" style="display:none">
-              <button class="btn" id="btnQuickShare" type="button">Partager</button>
             </div>
             <div id="bkHint" class="muted small" style="margin-top:8px">—</div>
-            <div class="muted small" style="margin-top:10px">La sauvegarde JSON permet de transférer les données sur un autre appareil.</div>
+            <details style="margin-top:10px">
+              <summary style="cursor:pointer">Options avancées</summary>
+              <div style="margin-top:10px">
+                <div class="row" style="flex-wrap:wrap">
+                  <div class="pill"><strong>Dernière</strong> <span id="bkLast" class="muted">—</span></div>
+                  <div class="pill"><strong>Non sauvegardés</strong> <span id="bkUnsaved" class="muted">0</span></div>
+                  <div class="pill"><strong>Stockage persistant</strong> <span id="bkPersist" class="muted">—</span></div>
+                </div>
+                <div class="row" style="flex-wrap:wrap;margin-top:10px">
+                  <button class="btn" id="btnBackup">Sauvegarder (JSON)</button>
+                  <button class="btn" id="btnQuickShare" type="button">Partager</button>
+                </div>
+                <div class="muted small" style="margin-top:10px">La sauvegarde JSON permet de transférer les données sur un autre appareil.</div>
+              </div>
+            </details>
           </div>
 
           <div class="card">
@@ -537,8 +543,6 @@ html[data-theme="light"] #themeToggle{background:rgba(20,30,55,.05)}
             </div>
             <div class="row" style="margin-top:10px;flex-wrap:wrap">
               <button class="btn primary" id="btnExportAll" type="button">Tout télécharger (ZIP)</button>
-              <button class="btn" id="btnPrepareEmail" type="button">Préparer email</button>
-              <button class="btn" id="btnShareAll" type="button">Partager le ZIP</button>
             </div>
             <div id="exportMsg" class="muted small" style="margin-top:10px">—</div>
             <div class="muted small" style="margin-top:10px">
@@ -561,11 +565,17 @@ html[data-theme="light"] #themeToggle{background:rgba(20,30,55,.05)}
             <div id="sheetSyncMsg" class="muted small" style="margin-top:8px">—</div>
 
 <div class="row" style="justify-content:flex-end;margin-top:10px;flex-wrap:wrap">
-  <button class="btn" id="btnSyncRefs" type="button">Synchroniser référentiels</button>
   <button class="btn warn" id="btnRestoreSheet" type="button">Importer depuis le Sheet</button>
 </div>
-<div class="muted small" id="sheetRefsMsg" style="margin-top:8px">—</div>
 <div class="muted small" id="sheetRestoreMsg" style="margin-top:8px">—</div>
+<details style="margin-top:10px">
+  <summary style="cursor:pointer">Options avancées</summary>
+  <div style="margin-top:10px">
+    <button class="btn" id="btnSyncRefs" type="button">Synchroniser référentiels</button>
+    <div class="muted small">Repousse tous les troupeaux/catégories/compositions vers le Sheet (réparation, rarement utile).</div>
+    <div class="muted small" id="sheetRefsMsg" style="margin-top:8px">—</div>
+  </div>
+</details>
           </div>
 
           <div class="card">
@@ -4563,7 +4573,7 @@ function renderAll(){
 /* INIT */
 var DATA=null;
 document.addEventListener("DOMContentLoaded", function(){
-  console.log("Suivi pâturage build v8.29 (onglets mobile 1 rangée ; scroll horizontal page bloqué ; sous-onglet Synchro ; suppression définitive troupeau corrigée)");
+  console.log("Suivi pâturage build v8.30 (tri Admin : export CSV allégé, encart Sauvegarde simplifié + options avancées, Synchroniser référentiels masqué)");
   applyCustomMapIfAny();
   buildPadMeta();
   DATA=loadData();
@@ -4678,8 +4688,6 @@ on("btnSaveCats","click",saveCatsFromUI);
   on("btnExportComps","click",exportComps);
   on("btnExportDaily","click",function(){ var y=Number(document.getElementById("yearSel").value); exportDaily(y); });
   on("btnExportAll","click",function(){ var y=Number(document.getElementById("yearSel").value); exportAllZip(y); });
-  on("btnPrepareEmail","click",prepareEmail);
-  on("btnShareAll","click",function(){ shareLastExport(); });
 
   on("btnBkBarExport","click",function(){
     var yEl=document.getElementById("yearSel");
