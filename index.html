@@ -229,7 +229,12 @@ html[data-theme="light"] .calRow{border-bottom-color:rgba(20,30,55,.08)}
 html[data-theme="light"] #themeToggle{background:rgba(20,30,55,.05)}
 </style>
 
-  <script>try{ if(localStorage.getItem("sp_theme")==="dark") document.documentElement.removeAttribute("data-theme"); }catch(_){}</script>
+  <script>try{
+    var _q=location.search||"";
+    if(_q.indexOf("theme=light")>=0){ localStorage.setItem("sp_theme","light"); }
+    else if(_q.indexOf("theme=dark")>=0){ localStorage.setItem("sp_theme","dark"); }
+    if(localStorage.getItem("sp_theme")==="dark") document.documentElement.removeAttribute("data-theme");
+  }catch(_){}</script>
   <link rel="manifest" href="manifest.webmanifest">
   <link rel="icon" type="image/png" href="icon-192.png">
   <link rel="apple-touch-icon" href="icon-192.png">
@@ -239,7 +244,7 @@ html[data-theme="light"] #themeToggle{background:rgba(20,30,55,.05)}
 <header>
   <div class="wrap">
     <div class="row" style="justify-content:space-between;align-items:center;flex-wrap:nowrap;gap:8px">
-      <h1>Suivi pâturage — saisie rapide <span class="muted small" style="font-weight:600">v8.30</span></h1>
+      <h1>Suivi pâturage — saisie rapide <span class="muted small" style="font-weight:600">v8.31</span></h1>
       <button id="themeToggle" class="btn small" type="button" title="Basculer clair / sombre" aria-label="Basculer le thème clair ou sombre" style="flex:0 0 auto">☀️</button>
     </div>
     <nav class="tabs" id="mainTabs">
@@ -4433,7 +4438,7 @@ function applyThemeButton(){
   var light=document.documentElement.getAttribute("data-theme")==="light";
   var b=document.getElementById("themeToggle");
   if(b){
-    b.textContent = light ? "🌙" : "☀️";
+    b.textContent = light ? "🌙 Sombre" : "☀️ Clair";
     b.title = light ? "Passer en mode sombre" : "Passer en mode clair";
   }
   // Accorde la couleur de la barre système mobile au thème
@@ -4573,7 +4578,7 @@ function renderAll(){
 /* INIT */
 var DATA=null;
 document.addEventListener("DOMContentLoaded", function(){
-  console.log("Suivi pâturage build v8.30 (tri Admin : export CSV allégé, encart Sauvegarde simplifié + options avancées, Synchroniser référentiels masqué)");
+  console.log("Suivi pâturage build v8.31 (forçage thème par URL ?theme=light/dark ; bouton thème avec libellé ; anti-cache)");
   applyCustomMapIfAny();
   buildPadMeta();
   DATA=loadData();
