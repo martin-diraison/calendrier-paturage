@@ -1,5 +1,5 @@
 <!doctype html>
-<html lang="fr">
+<html lang="fr" data-theme="light">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
@@ -124,7 +124,7 @@ input[type="number"]{min-width:120px}
 .right{text-align:right}
 .mapBox{border-radius:var(--radius);border:1px solid var(--border);overflow:hidden;background:rgba(0,0,0,.25)}
 #mapCanvas{width:100%;height:520px;display:block;touch-action:none}
-@media (max-width:900px){#mapCanvas{height:440px}}
+@media (max-width:900px){#mapCanvas{height:360px}}
 .legendRow{display:flex;gap:10px;align-items:flex-end;flex-wrap:wrap;margin-top:10px}
 .legendBar{height:10px;border-radius:999px;border:1px solid var(--border);background:linear-gradient(90deg, hsla(0,85%,55%,.85) 0%, hsla(60,85%,55%,.85) 50%, hsla(120,85%,45%,.85) 100%);width:100%;margin-top:8px}
 .legendTicks{display:flex;justify-content:space-between;font-size:11px;color:var(--muted);margin-top:6px}
@@ -220,17 +220,17 @@ html[data-theme="light"] .calRow{border-bottom-color:rgba(20,30,55,.08)}
 html[data-theme="light"] #themeToggle{background:rgba(20,30,55,.05)}
 </style>
 
-  <script>try{ if(localStorage.getItem("sp_theme")!=="dark") document.documentElement.setAttribute("data-theme","light"); }catch(_){}</script>
+  <script>try{ if(localStorage.getItem("sp_theme")==="dark") document.documentElement.removeAttribute("data-theme"); }catch(_){}</script>
   <link rel="manifest" href="manifest.webmanifest">
   <link rel="icon" type="image/png" href="icon-192.png">
   <link rel="apple-touch-icon" href="icon-192.png">
-  <meta name="theme-color" content="#0b1220">
+  <meta name="theme-color" content="#f4f6fb">
 </head>
 <body>
 <header>
   <div class="wrap">
     <div class="row" style="justify-content:space-between;align-items:center;flex-wrap:nowrap;gap:8px">
-      <h1>Suivi pâturage — saisie rapide <span class="muted small" style="font-weight:600">v8.24</span></h1>
+      <h1>Suivi pâturage — saisie rapide <span class="muted small" style="font-weight:600">v8.28</span></h1>
       <button id="themeToggle" class="btn small" type="button" title="Basculer clair / sombre" aria-label="Basculer le thème clair ou sombre" style="flex:0 0 auto">☀️</button>
     </div>
     <nav class="tabs" id="mainTabs">
@@ -341,10 +341,7 @@ html[data-theme="light"] #themeToggle{background:rgba(20,30,55,.05)}
 
     <div class="card">
       <h3 style="margin:0 0 6px 0">Corrections rapides</h3>
-      <div class="row" style="justify-content:flex-end">
-        <button class="btn danger" id="btnUndoLast" type="button">Annuler le dernier mouvement</button>
-      </div>
-      <div class="muted small" style="margin-top:8px">Suppression immédiate possible sur les derniers mouvements.</div>
+      <div class="muted small" style="margin-top:2px">Supprimez un mouvement récent directement dans la liste ci-dessous.</div>
       <div id="recentMoves" class="list" style="margin-top:10px"></div>
     </div>
 
@@ -4409,11 +4406,14 @@ function renderYearSel(){
 }
 /* ---- Mode clair / sombre (Lot G) ---- */
 function applyThemeButton(){
-  var b=document.getElementById("themeToggle");
-  if(!b) return;
   var light=document.documentElement.getAttribute("data-theme")==="light";
-  b.textContent = light ? "🌙" : "☀️";
-  b.title = light ? "Passer en mode sombre" : "Passer en mode clair";
+  var b=document.getElementById("themeToggle");
+  if(b){
+    b.textContent = light ? "🌙" : "☀️";
+    b.title = light ? "Passer en mode sombre" : "Passer en mode clair";
+  }
+  // Accorde la couleur de la barre système mobile au thème
+  try{ var mt=document.querySelector('meta[name="theme-color"]'); if(mt) mt.setAttribute("content", light ? "#f4f6fb" : "#0b1220"); }catch(_){}
 }
 function toggleTheme(){
   var light=document.documentElement.getAttribute("data-theme")==="light";
@@ -4549,7 +4549,7 @@ function renderAll(){
 /* INIT */
 var DATA=null;
 document.addEventListener("DOMContentLoaded", function(){
-  console.log("Suivi pâturage build v8.26 (P1 pastilles troupeaux ; P3 mode clair par défaut + textes ; fix carte déformée/décalée à la 1re ouverture via re-mesure rAF)");
+  console.log("Suivi pâturage build v8.28 (mode clair garanti ; carte mobile 360px ; retrait bouton Annuler dernier mouvement ; P1 pastilles ; fix carte rAF)");
   applyCustomMapIfAny();
   buildPadMeta();
   DATA=loadData();
@@ -4620,7 +4620,6 @@ document.addEventListener("DOMContentLoaded", function(){
     rebuildMapStats(true); syncMapUI(); drawMap();
   });
 
-  on("btnUndoLast","click",undoLastMove);
 
   // Barre de saisie flottante (Lot B)
   on("abLot","change",function(){ setDraftLot(this.value); renderSaisie(); });
