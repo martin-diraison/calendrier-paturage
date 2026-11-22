@@ -1,0 +1,103 @@
+/* Tests des règles métier : node --test tests/ */
+import test from "node:test";
+import assert from "node:assert/strict";
+import { lotTimeline, lotLocation, paddockStatus, restClass, pressureByPaddock, convertV8Movements, compForDate, ugbOf, OUT } from "../js/domain.js";
+import { fromV8 } from "../js/migrate.js";
+
+const mv = (id, lotId, date, to, createdAt = 0) => ({ id, lotId, date, to, createdAt });
+
+test("transfert : un seul déplacement ferme le séjour précédent", () => {
+  const moves = [mv("a", "L", "2026-05-01", "P1", 1), mv("b", "L", "2026-05-10", "P2", 2)];
+  const tl = lotTimeline(moves, "L");
+  assert.equal(tl.stays.length, 2);
+  assert.deepEqual([tl.stays[0].loc, tl.stays[0].start, tl.stays[0].end, tl.stays[0].endId], ["P1", "2026-05-01", "2026-05-10", "b"]);
+  assert.equal(tl.stays[1].end, null);
+  assert.equal(lotLocation(moves, "L", "2026-05-05").loc, "P1");
+  assert.equal(lotLocation(moves, "L", "2026-05-10").loc, "P2");
+  assert.equal(lotLocation(moves, "L", "2026-04-30"), null);
+});
+
+test("hors-paddock : période distincte et repos qui démarre", () => {
+  const moves = [mv("a", "L", "2026-05-01", "P1", 1), mv("b", "L", "2026-05-10", OUT, 2), mv("c", "L", "2026-06-01", "P2", 3)];
+  const tl = lotTimeline(moves, "L");
+  assert.equal(tl.outs.length, 1);
+  assert.deepEqual([tl.outs[0].start, tl.outs[0].end], ["2026-05-10", "2026-06-01"]);
+  const st = paddockStatus({ moves }, ["P1", "P2", "P3"], "2026-05-20");
+  assert.equal(st.P1.rest, 10);
+  assert.equal(st.P1.lastEnd, "2026-05-10");
+  assert.equal(st.P2.status, "never");
+  assert.equal(restClass(st.P1, 45), "early");
+});
+
+test("saisie antérieure : insertion dans l'historique", () => {
+  const moves = [mv("a", "L", "2026-11-01", "A", 1), mv("b", "L", "2026-11-10", "B", 2), mv("c", "L", "2026-11-05", "C", 3)];
+  const tl = lotTimeline(moves, "L");
+  assert.deepEqual(tl.stays.map((s) => [s.loc, s.start, s.end]), [["A", "2026-11-01", "2026-11-05"], ["C", "2026-11-05", "2026-11-10"], ["B", "2026-11-10", null]]);
+});
+
+test("déplacement redondant ignoré", () => {
+  const moves = [mv("a", "L", "2026-05-01", "P1", 1), mv("b", "L", "2026-05-03", "P1", 2)];
+  const tl = lotTimeline(moves, "L");
+  assert.equal(tl.stays.length, 1);
+  assert.deepEqual(tl.redundant, ["b"]);
+});
+
+test("occupation par plusieurs troupeaux", () => {
+  const moves = [mv("a", "L1", "2026-05-01", "P1", 1), mv("b", "L2", "2026-05-02", "P1", 2)];
+  const st = paddockStatus({ moves }, ["P1"], "2026-05-03");
+  assert.deepEqual(st.P1.occupants.sort(), ["L1", "L2"]);
+  assert.equal(restClass(st.P1, 45), "occ");
+});
+
+test("pression : jours comptés jusqu'à la date de référence, sans double compte", () => {
+  const D = {
+    moves: [mv("a", "L", "2026-11-01", "P1", 1), mv("b", "L", "2026-11-11", "P2", 2)],
+    comps: [{ id: "c", lotId: "L", eff: "2026-01-01", items: { x: 10 } }],
+    cats: [{ id: "x", ugb: 1 }]
+  };
+  const pads = [{ id: "P1", area: 1 }, { id: "P2", area: 1 }];
+  const pr = pressureByPaddock(D, pads, "2026-11-22");
+  assert.equal(pr.byPad.P1.ugbDays, 100); // 1er→10 nov = 10 jours × 10 UGB
+  assert.equal(pr.byPad.P2.ugbDays, 120); // 11→22 nov inclus = 12 jours
+});
+
+test("composition en vigueur et UGB", () => {
+  const comps = [{ id: "1", lotId: "L", eff: "2026-01-01", items: { a: 2 } }, { id: "2", lotId: "L", eff: "2026-06-01", items: { a: 3 } }];
+  assert.equal(compForDate(comps, "L", "2026-05-31").id, "1");
+  assert.equal(compForDate(comps, "L", "2026-06-01").id, "2");
+  assert.equal(ugbOf({ a: 3 }, [{ id: "a", ugb: 0.7 }]).toFixed(2), "2.10");
+});
+
+test("conversion v8 : transfert auto, sortie seule, journée unique, sortie orpheline", () => {
+  const ev = (id, dt, type, p) => ({ id, lotId: "L", dt, type, paddockId: p });
+  const r = convertV8Movements([
+    ev("i1", "2026-05-01", "IN", "P1"),
+    ev("o1", "2026-05-10", "OUT", "P1"), ev("i2", "2026-05-10", "IN", "P2"), // transfert (sortie auto)
+    ev("o2", "2026-05-20", "OUT", "P2"),                                      // sortie seule
+    ev("i3", "2026-06-01", "IN", "P3"), ev("o3", "2026-06-01", "OUT", "P3"), // journée unique
+    ev("o4", "2026-06-15", "OUT", "P9")                                       // orpheline
+  ]);
+  assert.deepEqual(r.moves.map((m) => [m.id, m.date, m.to]), [
+    ["i1", "2026-05-01", "P1"], ["i2", "2026-05-10", "P2"], ["o2", "2026-05-20", OUT], ["i3", "2026-06-01", "P3"], ["o3", "2026-06-01", OUT]
+  ]);
+  assert.deepEqual(r.orphanOuts, ["o4"]);
+});
+
+test("conversion v8 : alias d'identifiant de paddock", () => {
+  const r = convertV8Movements([{ id: "i", lotId: "L", dt: "2026-05-01", type: "IN", paddockId: "COTEAU NORDCOTEAU NORD_6" }], { "COTEAU NORDCOTEAU NORD_6": "COTEAU NORD_6" });
+  assert.equal(r.moves[0].to, "COTEAU NORD_6");
+});
+
+test("import v8 complet", () => {
+  const v8 = {
+    lots: [{ id: "L", name: "Juments" }], categories: [{ id: "adulte", name: "Adulte", ugb: 0.7 }],
+    compositions: [{ id: "x", lotId: "L", eff: "2026-01-01", items: { adulte: 5 } }],
+    movements: [{ id: "i", lotId: "L", dt: "2026-05-01", type: "IN", paddockId: "P1" }],
+    foins: [{ id: "f", lotId: "L", dt: "2026-11-01", type: "enrubanne", year: 2026 }], ui: { restTarget: 50 }
+  };
+  const { records, report, settings } = fromV8(v8);
+  assert.equal(report.moves, 1);
+  assert.equal(records.comps[0].id, "L@2026-01-01");
+  assert.equal(records.foins[0].type, "enrubanne");
+  assert.equal(settings.restTarget, 50);
+});
