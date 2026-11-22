@@ -2,7 +2,7 @@
    Les interactions passent par data-a="action" (clic) et data-in="champ" (saisie), gérés dans app.js. */
 import { esc, fmtShort, fmtLong, fmtNum, daysBetween, addDays, MOIS, MOIS_COURT, plural, normText, parseISO } from "./util.js";
 import { GEO, padLabel, parcelLabel } from "./geo.js";
-import { OUT, lotTimeline, lotLocation, restClass, lotUGB, compForDate, ugbOf } from "./domain.js";
+import { OUT, lotTimeline, lotLocation, restClass, lotUGB, compForDate, ugbOf, padHistory } from "./domain.js";
 import { mapHTML } from "./mapsvg.js";
 import { icon } from "./icons.js";
 import { LOT_COLORS } from "./migrate.js";
@@ -45,20 +45,29 @@ export function viewHome(S, C) {
     h += `<div class="card" style="margin-top:16px"><b>Aucun troupeau.</b><div class="small muted" style="margin-top:4px">Créez un troupeau, ou importez vos données (Plus → Exports et sauvegarde → Restaurer).</div>
       <button type="button" class="btn primary block" style="margin-top:10px" data-a="lot-new">${icon("plus", 20)} Créer un troupeau</button></div>`;
   }
-  h += `<div class="stack" style="margin-top:18px">`;
-  for (const l of lots) {
-    const loc = lotLocation(C.D.moves, l.id, C.today);
+  /* Tuiles en 2 colonnes : hors-paddock d'abord (ce sont eux qui reçoivent le foin).
+     Toucher la tuile ouvre la fiche du troupeau ; Foin = 1 appui = 1 round-baller aujourd'hui. */
+  const info = lots.map((l) => ({ l, loc: lotLocation(C.D.moves, l.id, C.today) }));
+  const rank = (x) => (!x.loc ? 2 : x.loc.loc === OUT ? 0 : 1);
+  info.sort((a, b) => rank(a) - rank(b));
+  h += `<div class="tiles">`;
+  for (const { l, loc } of info) {
     const days = loc ? daysBetween(loc.since, C.today) : 0;
-    let where, since, long = false;
-    if (!loc) { where = "Pas encore placé"; since = "Aucun déplacement enregistré"; }
-    else if (loc.loc === OUT) { where = "Hors-paddock"; since = "Depuis " + days + " j"; }
-    else { where = padLabel(loc.loc); since = days === 0 ? "Entré aujourd’hui" : "Depuis " + days + " j · entré le " + fmtShort(loc.since); long = days >= C.settings.longStay; }
     const inPad = loc && loc.loc !== OUT;
-    h += `<div class="card"><div class="lot-head">${dot(l.color)}<div class="lot-name">${esc(l.name)}</div><div class="small muted">${esc(ugbTxt(lotUGB(C.D, l.id, C.today)))}</div></div>
-      <div class="lot-where">${icon(inPad ? "pin" : "shelter", 20, 'style="color:var(--muted)"')}<span>${esc(where)}</span></div>
-      <div class="lot-since"><span>${esc(since)}</span>${long ? `<span class="badge b-warn">Long séjour</span>` : ""}</div>
-      <div class="lot-actions"><button type="button" class="btn primary big" data-a="move-start" data-lot="${esc(l.id)}">${inPad ? "Déplacer" : "Mettre au pré"} ${icon("arrow", 20)}</button>
-      <button type="button" class="btn hay big" data-a="foin-open" data-lot="${esc(l.id)}">${icon("bale", 20)} Foin</button></div></div>`;
+    const where = !loc ? "Pas encore placé" : loc.loc === OUT ? "Hors-paddock" : padLabel(loc.loc);
+    const long = inPad && days >= C.settings.longStay;
+    const since = (loc ? (days === 0 ? "aujourd’hui" : days + " j") + " · " : "") + ugbTxt(lotUGB(C.D, l.id, C.today));
+    const n = C.D.foins.filter((f) => f.lotId === l.id && f.date === C.today).length;
+    h += `<div class="tile" style="border-top-color:${esc(l.color)}">
+      <button type="button" class="tile-main" data-a="lot-open" data-lot="${esc(l.id)}" data-back="home" aria-label="Fiche du troupeau ${esc(l.name)}">
+        <span class="tile-name">${esc(l.name)}</span>
+        <span class="tile-where">${esc(where)}</span>
+        <span class="tile-since${long ? " long" : ""}">${esc(since)}</span>
+      </button>
+      <div class="tile-actions">
+        <button type="button" class="btn primary" data-a="move-start" data-lot="${esc(l.id)}">Déplacer</button>
+        <button type="button" class="btn hay" data-a="foin-quick" data-lot="${esc(l.id)}">Foin${n ? `<span class="cnt">${n}</span>` : ""}</button>
+      </div></div>`;
   }
   h += `</div>`;
   if (lots.length) {
@@ -95,7 +104,7 @@ export function viewMove(S, C) {
   const curPad = cur && cur.loc !== OUT ? cur.loc : null;
   const st = C.statusAt(C.today);
   let h = `<div class="topbar"><div class="row" style="flex-wrap:nowrap;gap:4px"><button type="button" class="iconbtn" data-a="move-cancel" aria-label="Retour">${icon("back", 24)}</button>
-    <div style="min-width:0;flex:1 1 auto"><div class="ttl">${curPad ? "Déplacer" : "Mettre au pré"} ${esc(lot.name)}</div>
+    <div style="min-width:0;flex:1 1 auto"><div class="ttl">Déplacer ${esc(lot.name)}</div>
     <div class="sub small">${cur ? (cur.loc === OUT ? "Hors-paddock depuis le " + esc(fmtShort(cur.since)) : "Actuellement : " + esc(padLabel(cur.loc)) + " · " + daysBetween(cur.since, C.today) + " j") : "Pas encore placé"}</div></div></div>
     <div class="seg" style="margin-top:10px"><button type="button" class="${M.view === "map" ? "on" : ""}" data-a="move-view" data-v="map">Carte</button><button type="button" class="${M.view === "list" ? "on" : ""}" data-a="move-view" data-v="list">Liste</button></div></div>`;
   h += `<div class="screen">`;
@@ -157,10 +166,26 @@ function moveConfirmBody(sh, C) {
   return `<div class="row" style="flex-wrap:nowrap">${dot(lot.color)}<div class="ttl">${sh.to === OUT ? "Sortir" : "Déplacer"} ${esc(lot.name)}</div></div>
     <div class="small muted" style="margin-top:4px">${cur ? (cur.loc === OUT ? "Actuellement hors-paddock" : "Actuellement : " + esc(padLabel(cur.loc))) : "Pas encore placé"}</div>
     <div class="small muted" style="margin-top:12px">Destination</div><div style="font-size:19px;font-weight:700">${esc(dest)}</div>
+    ${sh.to === OUT ? "" : padHistHTML(C, sh.to, sh.date)}
     ${warns.filter(Boolean).map((w) => `<div class="warnline">${icon("warn", 18)}${esc(w)}</div>`).join("")}
     ${dateChips(C, sh.date, "mc")}
     <button type="button" class="btn primary big block" style="margin-top:12px" data-a="mc-confirm">${sh.to === OUT ? "Sortir du paddock" : "Déplacer ici"} ${esc(dateWords(sh.date, C.today))}</button>
     <button type="button" class="btn block" style="margin-top:8px" data-a="sheet-close">Annuler</button>`;
+}
+
+/* Ouverture / fermeture du paddock : séjour en cours ou dernier séjour, et le précédent */
+function padHistHTML(C, padId, ref) {
+  const hist = padHistory(C.D, padId, ref);
+  if (!hist.length) return `<div class="padhist">Jamais pâturé</div>`;
+  const name = (id) => (lotOf(C, id) || { name: "troupeau supprimé" }).name;
+  const line = (x) => x.end === null
+    ? `<div><b>Ouvert depuis le ${esc(fmtShort(x.start, true))}</b> (${plural(daysBetween(x.start, ref), "jour", "jours")}) · ${esc(name(x.lotId))}</div>`
+    : `<div>Ouvert le ${esc(fmtShort(x.start, true))}, <b>fermé le ${esc(fmtShort(x.end, true))}</b> (${plural(daysBetween(x.start, x.end), "jour", "jours")}) · ${esc(name(x.lotId))}</div>`;
+  const open = hist.filter((x) => x.end === null);
+  const closed = hist.filter((x) => x.end !== null).sort((a, b) => (a.end < b.end ? 1 : -1));
+  let h = open.map(line).join("");
+  if (closed.length) h += line(closed[0]) + (open.length ? "" : `<div class="muted">Fermé depuis ${plural(daysBetween(closed[0].end, ref), "jour", "jours")}</div>`);
+  return `<div class="padhist">${h}</div>`;
 }
 
 function legendHTML(target) {
@@ -213,7 +238,12 @@ export function viewCarte(S, C) {
     const prv = pr && pr.byPad[p.id] ? pr.byPad[p.id].pressure : null;
     h += `<div class="card" style="margin-top:14px"><div class="spread" style="align-items:baseline"><div style="font-size:20px;font-weight:700">${esc(padLabel(p.id))}</div><div class="small muted">${fmtNum(p.area, 2)} ha</div></div>
       <div class="row" style="margin-top:6px;flex-wrap:nowrap"><i style="width:14px;height:14px;border-radius:4px;background:var(--c-${c});display:inline-block;flex:0 0 auto"></i><b>${esc(status)}</b></div>
-      <div class="small muted" style="margin-top:2px">${esc(detail)}${prv ? " · pression " + fmtNum(prv, 2) + " UGB/ha/an" : ""}</div>`;
+      ${prv ? `<div class="small muted" style="margin-top:2px">Pression ${fmtNum(prv, 2)} UGB/ha/an</div>` : ""}
+      ${padHistHTML(C, p.id, ref)}`;
+    /* sortir un troupeau présent : passage hors-paddock (date au choix dans la validation) */
+    if (s.occupants.length && ref === C.today) {
+      h += `<div class="stack" style="margin-top:12px;gap:8px">` + s.occupants.map((id) => { const l = lotOf(C, id); return l ? `<button type="button" class="btn block" data-a="mc-open" data-lot="${esc(l.id)}" data-pad="${OUT}">${icon("shelter", 20)} Sortir ${esc(l.name)} → hors-paddock</button>` : ""; }).join("") + `</div>`;
+    }
     const avail = C.D.lots.filter((l) => !l.archived && !s.occupants.includes(l.id));
     if (avail.length && ref === C.today) {
       h += `<div class="small muted" style="margin-top:12px">Y mettre un troupeau</div><div class="chips" style="margin-top:6px">` +
@@ -317,7 +347,7 @@ export function viewPlus(S, C) {
     ${item("sub-exports", "Exports et sauvegarde", "CSV, ZIP, sauvegarde JSON, restauration")}
     ${item("sub-settings", "Réglages", "Objectif de repos " + C.settings.restTarget + " j · catégories UGB · thème")}
     ${item("sub-mapcfg", "Parcelles et paddocks", GEO.parcels.length + " parcelles · " + GEO.pads.length + " paddocks · " + fmtNum(GEO.pads.reduce((s, p) => s + p.area, 0), 1) + " ha")}
-  </div><p class="small muted" style="margin:14px 4px">Suivi pâturage v9.1.1 · ${C.D.moves.length} déplacements · ${C.D.foins.length} foin</p></div>`;
+  </div><p class="small muted" style="margin:14px 4px">Suivi pâturage v9.2.0 · ${C.D.moves.length} déplacements · ${C.D.foins.length} foin</p></div>`;
 }
 const subHead = (title, back = "plus-back") => `<div class="row" style="flex-wrap:nowrap;gap:4px;margin:-8px 0 8px -10px"><button type="button" class="iconbtn" data-a="${back}" aria-label="Retour">${icon("back", 24)}</button><h1 style="font-size:24px">${title}</h1></div>`;
 
@@ -339,9 +369,9 @@ function viewLot(S, C) {
   /* catégories proposées + catégories supprimées encore présentes dans la composition chargée */
   const cats = C.D.catsAll.filter((k) => !k.deleted || Number(draft[k.id]) > 0);
   const catName = (k) => k.name + (k.deleted ? " (supprimée)" : "");
-  let h = `<div class="screen">${subHead(esc(l.name), "sub-lots")}
+  let h = `<div class="screen">${subHead(esc(l.name), "lot-back")}
     <div class="card"><label class="field" style="margin-top:0"><span>Nom</span><input class="input" value="${esc(l.name)}" data-in="lot-name" data-lot="${esc(l.id)}"></label>
-    <div class="field"><span>Couleur</span><div class="chips">${LOT_COLORS.map((c) => `<button type="button" class="chip" style="min-width:48px;padding:0;background:${c};border-color:${c === l.color ? "var(--ink)" : c};${c === l.color ? "box-shadow:0 0 0 2px var(--card) inset" : ""}" data-a="lot-color" data-lot="${esc(l.id)}" data-c="${c}" aria-label="Couleur ${c}"></button>`).join("")}</div></div>
+    <div class="field"><span>Couleur</span><div class="chips">${LOT_COLORS.map((c) => `<button type="button" class="chip" style="min-width:48px;padding:0;background:${c};border-color:${c === l.color ? "var(--ink)" : c};${c === l.color ? "box-shadow:0 0 0 2px var(--card) inset" : ""}" data-a="lot-color" data-lot="${esc(l.id)}" data-c="${c}" aria-label="Couleur ${c}"></button>`).join("")}<label class="chip colorpick" style="${LOT_COLORS.includes(l.color) ? "" : `background:${esc(l.color)};border:2px solid var(--ink)`}" title="Autre couleur">${LOT_COLORS.includes(l.color) ? "+" : ""}<input type="color" value="${esc(l.color)}" data-in="lot-color-custom" data-lot="${esc(l.id)}" aria-label="Autre couleur" style="position:absolute;opacity:0;width:1px;height:1px"></label></div></div>
     <div class="row" style="margin-top:12px"><button type="button" class="btn" data-a="lot-archive" data-lot="${esc(l.id)}">${l.archived ? "Réactiver" : "Archiver"}</button><button type="button" class="btn danger" data-a="lot-delete" data-lot="${esc(l.id)}">Supprimer…</button></div>
     <div class="small muted" style="margin-top:6px">Archiver masque le troupeau sans effacer son historique.</div></div>`;
   h += `<h2>Composition</h2><div class="card"><div class="row"><label class="field" style="margin-top:0;flex:1 1 160px"><span>Date d’effet</span><input class="input" type="date" value="${esc(E.eff)}" data-in="comp-eff"></label>
@@ -515,6 +545,6 @@ export function viewSheet(S, C) {
 }
 
 export function viewToast(S) {
-  if (!S.toast) return "";
-  return `<div class="toast${S.screen === "move" ? " high" : ""}" role="status">${icon("check", 22, 'style="color:#A7E3B0;flex:0 0 auto"')}<span class="msg">${esc(S.toast.msg)}</span>${S.toast.undo ? `<button type="button" data-a="undo">Annuler</button>` : ""}</div>`;
+  if (!S.toast || S.sheet) return ""; // pas de message par-dessus une fenêtre de saisie
+  return `<div class="toast${S.screen === "move" ? " high" : ""}" role="status">${icon("check", 22, 'style="color:#A7E3B0;flex:0 0 auto"')}<span class="msg">${esc(S.toast.msg)}</span>${S.toast.edit ? `<button type="button" data-a="${esc(S.toast.edit.a)}" data-id="${esc(S.toast.edit.id)}">Modifier</button>` : ""}${S.toast.undo ? `<button type="button" data-a="undo">Annuler</button>` : ""}</div>`;
 }

@@ -10,7 +10,7 @@ import { viewHome, viewMove, viewCarte, viewCal, viewPlus, viewNav, viewSheet, v
 import { parcelView, padScreenSize, MIN_TAP_PX } from "./mapsvg.js";
 import { attachMapGestures } from "./mapgesture.js";
 
-const VERSION = "9.1.1";
+const VERSION = "9.2.0";
 const app = document.getElementById("app");
 let BASE_CARTE = null;
 const SET = { restTarget: 45, pressureMax: 2, longStay: 10, theme: "light" };
@@ -83,9 +83,9 @@ function go(screen, sub = null) {
 
 /* ---------------- toast avec « Annuler » ---------------- */
 let toastTimer = null;
-function toast(msg, undo, ms = 6000) {
+function toast(msg, undo, ms = 6000, edit = null) {
   clearTimeout(toastTimer);
-  S.toast = { msg, undo: undo || null };
+  S.toast = { msg, undo: undo || null, edit };
   toastTimer = setTimeout(() => { S.toast = null; render(); }, ms);
   render();
 }
@@ -160,7 +160,7 @@ const A = {
     await store.save("moves", rec);
     S.sheet = null;
     if (sh.from === "move") { S.move = null; S.screen = "home"; window.scrollTo(0, 0); }
-    else S.carte.pad = rec.to === OUT ? null : rec.to;
+    else S.carte.pad = rec.to === OUT ? S.carte.pad : rec.to;
     if (navigator.vibrate) try { navigator.vibrate(30); } catch (_) {}
     toast(lot.name + " → " + padLabel(rec.to) + (rec.date !== C.today ? " (" + fmtShort(rec.date) + ")" : ""), async () => { await store.remove("moves", rec.id); toast("Déplacement annulé"); });
   },
@@ -185,7 +185,17 @@ const A = {
   "cal-locate": (d) => { const p = GEO.byId[d.id]; if (!p) return; S.cal.fs = false; S.carte.vb = parcelView(p.parcel); S.carte.pad = p.id; go("carte"); },
 
   /* --- Foin --- */
-  "foin-open": (d) => { S.sheet = { type: "foin", lotId: d.lot, ftype: null, year: new Date().getFullYear(), date: C.today }; render(); },
+  "foin-open": (d) => { const p = lastFoin(d.lot); S.sheet = { type: "foin", lotId: d.lot, ftype: p ? p.type : null, year: p ? p.year : new Date().getFullYear(), date: C.today }; render(); },
+  "foin-quick": async (d) => {
+    const lot = lotById(d.lot); if (!lot) return;
+    const p = lastFoin(lot.id);
+    const rec = { id: uid("fo"), lotId: lot.id, date: C.today, type: p ? p.type : "foin", year: p ? p.year : new Date().getFullYear(), createdAt: Date.now() };
+    await store.save("foins", rec);
+    if (navigator.vibrate) try { navigator.vibrate(30); } catch (_) {}
+    const n = store.live("foins").filter((f) => f.lotId === lot.id && f.date === C.today).length;
+    toast((rec.type === "enrubanne" ? "Enrubanné " : "Foin ") + rec.year + " · " + lot.name + (n > 1 ? " (" + n + " aujourd’hui)" : ""),
+      async () => { await store.remove("foins", rec.id); toast("Saisie de foin annulée"); }, 7000, { a: "edit-foin", id: rec.id });
+  },
   "foin-type": (d) => { S.sheet.ftype = d.v; render(); },
   "foin-year": (d) => { S.sheet.year = +d.v; render(); },
   "foin-day": (d) => { S.sheet.date = d.d; render(); },
@@ -225,7 +235,7 @@ const A = {
     await store.remove("moves", m.id); S.sheet = null; S.cal.sel = null;
     toast("Déplacement supprimé", async () => { m.deleted = false; await store.save("moves", m); toast("Suppression annulée"); }, 8000);
   },
-  "edit-foin": (d) => { const f = store.get("foins", d.id); if (!f) return; S.sheet = { type: "editFoin", id: f.id, lotId: f.lotId, date: f.date, ftype: f.type, year: f.year }; render(); },
+  "edit-foin": (d) => { const f = store.get("foins", d.id); if (!f) return; S.toast = null; clearTimeout(toastTimer); S.sheet = { type: "editFoin", id: f.id, lotId: f.lotId, date: f.date, ftype: f.type, year: f.year }; render(); },
   "ef-type": (d) => { S.sheet.ftype = d.v; render(); },
   "ef-save": async () => {
     const sh = S.sheet, f = store.get("foins", sh.id); if (!f) return;
@@ -251,7 +261,8 @@ const A = {
     await store.save("lots", rec); S.sheet = null;
     toast("Troupeau « " + name + " » créé");
   },
-  "lot-open": (d) => { openLot(d.lot, C.today); go("plus", "lot"); },
+  "lot-open": (d) => { openLot(d.lot, C.today); S.lotBack = d.back || "lots"; go("plus", "lot"); },
+  "lot-back": () => { if (S.lotBack === "home") go("home"); else go("plus", "lots"); },
   "lot-color": async (d) => { const l = lotById(d.lot); l.color = d.c; await store.save("lots", l); },
   "lot-archive": async (d) => {
     const l = lotById(d.lot); if (!l) return;
@@ -417,6 +428,7 @@ const I = {
   "jr-from": (v) => { S.journal.from = v; },
   "jr-to": (v) => { S.journal.to = v; },
   "ex-year": (v) => { S.exYear = +v; },
+  "lot-color-custom": async (v, el) => { const l = lotById(el.dataset.lot); if (l && /^#[0-9a-f]{6}$/i.test(v)) { l.color = v; await store.save("lots", l); } },
   "cat-name": async (v, el) => { const c = store.get("cats", el.dataset.id); if (c && v.trim()) { c.name = v.trim(); await store.save("cats", c, { silent: true }); } },
   "cat-ugb": async (v, el) => { const c = store.get("cats", el.dataset.id); if (c) { c.ugb = toNum(v); await store.save("cats", c, { silent: true }); } },
   "em-lot": (v) => { S.sheet.lotId = v; }, "em-date": (v) => { if (v) S.sheet.date = v; }, "em-to": (v) => { S.sheet.to = v; },
@@ -450,6 +462,10 @@ const NO_RENDER_ON_CHANGE = new Set(["lot-name", "cat-name", "sync-url", "sync-s
 function openLot(lotId, eff) {
   const c = compForDate(store.live("comps"), lotId, eff);
   S.lotEdit = { lotId, eff, draft: c ? clone(c.items || {}) : {} };
+}
+/* dernière saisie de foin d'un troupeau (pour reprendre son type et son année de fauche) */
+function lastFoin(lotId) {
+  return store.live("foins").filter((f) => f.lotId === lotId).sort((a, b) => (a.date !== b.date ? (a.date < b.date ? 1 : -1) : (b.createdAt || 0) - (a.createdAt || 0)))[0] || null;
 }
 function openMoveConfirm(lotId, to, from) {
   const date = from === "move" && S.move && S.move.date ? S.move.date : C.today;

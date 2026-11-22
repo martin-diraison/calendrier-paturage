@@ -1,7 +1,7 @@
 /* Tests des règles métier : node --test tests/ */
 import test from "node:test";
 import assert from "node:assert/strict";
-import { lotTimeline, lotLocation, paddockStatus, restClass, pressureByPaddock, convertV8Movements, compForDate, ugbOf, OUT } from "../js/domain.js";
+import { lotTimeline, lotLocation, paddockStatus, restClass, pressureByPaddock, convertV8Movements, compForDate, ugbOf, padHistory, OUT } from "../js/domain.js";
 import { fromV8 } from "../js/migrate.js";
 
 const mv = (id, lotId, date, to, createdAt = 0) => ({ id, lotId, date, to, createdAt });
@@ -119,4 +119,10 @@ test("9.1.1 : un passage de 0 jour ne rend pas le paddock « pâturé »", () =>
   const st = paddockStatus({ moves }, ["P1", "P2"], "2026-11-22");
   assert.equal(st.P2.status, "never");
   assert.equal(st.P1.status, "occ");
+});
+
+test("9.2 : historique d'un paddock (ouverture, fermeture, tous troupeaux)", () => {
+  const moves = [mv("a", "L", "2026-05-01", "P1", 1), mv("b", "L", "2026-05-10", "P2", 2), mv("c", "M", "2026-06-01", "P1", 3), mv("d", "M", "2026-06-01", "P3", 4), mv("e", "K", "2026-07-01", "P1", 5)];
+  const h = padHistory({ moves }, "P1", "2026-07-05");
+  assert.deepEqual(h.map((x) => [x.lotId, x.start, x.end]), [["K", "2026-07-01", null], ["L", "2026-05-01", "2026-05-10"]]);
 });

@@ -1,7 +1,9 @@
 /* Import des données de la v8 (sauvegarde JSON, ou stockage local du navigateur). */
 import { convertV8Movements } from "./domain.js";
 
-export const LOT_COLORS = ["#6D4AB0", "#0E7C86", "#B83280", "#A35A00", "#2B6CB0", "#5A6473", "#2F7D32", "#9C2F2F"];
+/* 16 couleurs bien distinctes (les 8 premières : celles des versions précédentes) ; une couleur libre reste possible */
+export const LOT_COLORS = ["#6D4AB0", "#0E7C86", "#B83280", "#A35A00", "#2B6CB0", "#5A6473", "#2F7D32", "#9C2F2F",
+  "#D1495B", "#E07A1F", "#B8860B", "#6B8E23", "#00897B", "#1E88E5", "#3949AB", "#8E24AA"];
 
 export function isV8(obj) {
   return !!(obj && Array.isArray(obj.movements) && Array.isArray(obj.lots) && !obj.format);

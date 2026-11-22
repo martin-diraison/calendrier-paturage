@@ -58,6 +58,20 @@ export function paddockStatus(D, padIds, ref) {
   return res;
 }
 
+/* Historique d'un paddock jusqu'à `ref` : séjours (tous troupeaux), du plus récent au plus ancien.
+   Chaque séjour : { lotId, start (ouverture), end (fermeture, exclue ; null = en cours) }. */
+export function padHistory(D, padId, ref) {
+  const out = [];
+  const lotIds = new Set(D.moves.filter((m) => !m.deleted && m.to === padId).map((m) => m.lotId));
+  for (const lotId of lotIds) {
+    for (const st of lotTimeline(D.moves, lotId, ref).stays) {
+      if (st.loc !== padId || (st.end !== null && st.end === st.start)) continue;
+      out.push({ lotId, start: st.start, end: st.end });
+    }
+  }
+  return out.sort((a, b) => (a.start < b.start ? 1 : a.start > b.start ? -1 : 0));
+}
+
 /* Classe de couleur d'un paddock selon le repos et l'objectif. */
 export function restClass(st, target) {
   if (!st) return "never";
