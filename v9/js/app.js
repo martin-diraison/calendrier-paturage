@@ -8,7 +8,7 @@ import { fromV8, isV8, readV8FromThisBrowser, LOT_COLORS } from "./migrate.js";
 import * as X from "./exports.js";
 import { viewHome, viewMove, viewCarte, viewCal, viewPlus, viewNav, viewSheet, viewToast } from "./views.js";
 
-const VERSION = "9.0.1";
+const VERSION = "9.0.2";
 const app = document.getElementById("app");
 let BASE_CARTE = null;
 const SET = { restTarget: 45, pressureMax: 2, longStay: 10, theme: "light" };
@@ -537,7 +537,16 @@ async function init() {
   }
   render();
   syncNow();
-  if ("serviceWorker" in navigator && location.protocol !== "file:") navigator.serviceWorker.register("sw.js").catch(() => {});
+  if ("serviceWorker" in navigator && location.protocol !== "file:") {
+    /* nouvelle version installée pendant l'ouverture : on recharge une fois pour l'utiliser tout de suite */
+    const hadController = !!navigator.serviceWorker.controller;
+    navigator.serviceWorker.addEventListener("controllerchange", () => {
+      if (!hadController || sessionStorage.getItem("swReloaded")) return;
+      if (S.sheet || S.screen === "move") return; // ne pas interrompre une saisie
+      sessionStorage.setItem("swReloaded", "1"); location.reload();
+    });
+    navigator.serviceWorker.register("sw.js", { updateViaCache: "none" }).then((r) => r.update()).catch(() => {});
+  }
   console.log("Suivi pâturage v" + VERSION);
 }
 init().catch(showError);
