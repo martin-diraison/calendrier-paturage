@@ -6,16 +6,18 @@ import * as store from "./store.js";
 import { SYNC, initSync, scheduleSync, syncNow, setSyncConfig, testSync, onSync } from "./sync.js";
 import { fromV8, isV8, readV8FromThisBrowser, LOT_COLORS } from "./migrate.js";
 import * as X from "./exports.js";
-import { viewHome, viewMove, viewCarte, viewCal, viewPlus, viewNav, viewSheet, viewToast } from "./views.js";
+import { viewHome, viewMove, viewCarte, viewCal, viewPlus, viewNav, viewSheet, viewToast, moveMapH, carteMapH } from "./views.js";
+import { parcelView, padScreenSize, MIN_TAP_PX } from "./mapsvg.js";
+import { attachMapGestures } from "./mapgesture.js";
 
-const VERSION = "9.0.4";
+const VERSION = "9.1.0";
 const app = document.getElementById("app");
 let BASE_CARTE = null;
 const SET = { restTarget: 45, pressureMax: 2, longStay: 10, theme: "light" };
 const S = {
   screen: "home", sub: null,
   move: null,
-  carte: { parcel: null, pad: null, layer: "rest", ref: null, optsOpen: false },
+  carte: { vb: null, pad: null, layer: "rest", ref: null, optsOpen: false },
   cal: { lotId: null, year: null, sel: null, fs: false },
   lotEdit: null, newCat: { name: "", ugb: "" },
   journal: { kind: "moves", lotId: "", from: "", to: "", limit: 100 },
@@ -129,50 +131,57 @@ const A = {
 
   /* --- Déplacer --- */
   "move-start": (d) => {
-    S.move = { lotId: d.lot, view: "map", sel: d.pad || null, date: C.today, q: "", showAll: false, parcel: d.pad && GEO.byId[d.pad] ? GEO.byId[d.pad].parcel : null };
+    S.move = { lotId: d.lot, view: "map", date: C.today, q: "", showAll: false, vb: null };
     go("move");
   },
   "move-cancel": () => { S.move = null; go("home"); },
   "move-view": (d) => { S.move.view = d.v; render(); },
-  "move-pick": (d) => { S.move.sel = d.id; render(); },
-  "mv-parcel": (d) => { S.move.parcel = d.id; render(); },
+  "move-pick": (d) => { openMoveConfirm(S.move.lotId, d.id, "move"); },
+  "mv-parcel": (d) => { S.move.vb = parcelView(d.id); render(); },
   "mv-pad": (d) => {
-    const p = GEO.byId[d.id];
-    if (!S.move.parcel || S.move.parcel !== p.parcel) S.move.parcel = p.parcel; else S.move.sel = d.id;
-    render();
+    const p = GEO.byId[d.id]; if (!p) return;
+    /* paddock trop petit à l'écran pour être visé sans erreur : on zoome d'abord sur sa parcelle */
+    if (padScreenSize(p.id, S.move.vb, moveMapH()) < MIN_TAP_PX) { S.move.vb = parcelView(p.parcel); render(); return; }
+    openMoveConfirm(S.move.lotId, p.id, "move");
   },
-  "mv-unzoom": () => { S.move.parcel = null; render(); },
   "move-all": () => { S.move.showAll = true; render(); },
-  "move-day": (d) => { S.move.date = d.d; render(); },
-  "move-cal": () => { const t = S.move.date; S.sheet = { type: "date", target: "move", y: +t.slice(0, 4), m: +t.slice(5, 7) - 1 }; render(); },
-  "move-confirm": async () => {
-    const M = S.move; if (!M || !M.sel) return;
-    const lot = lotById(M.lotId);
-    const cur = lotLocation(C.D.moves, M.lotId, M.date);
-    if (cur && cur.loc === M.sel) { toast("Le troupeau est déjà à cet endroit à cette date."); return; }
-    const rec = { id: uid("mv"), lotId: M.lotId, date: M.date, to: M.sel, createdAt: Date.now() };
+
+  /* --- Panneau de validation d'un déplacement --- */
+  "mc-open": (d) => { openMoveConfirm(d.lot, d.pad, "carte"); },
+  "mc-day": (d) => { S.sheet.date = d.d; render(); },
+  "mc-cal": () => { S.sheetBack = S.sheet; const t = S.sheet.date; S.sheet = { type: "date", target: "mc", y: +t.slice(0, 4), m: +t.slice(5, 7) - 1 }; render(); },
+  "mc-confirm": async () => {
+    const sh = S.sheet; if (!sh || sh.type !== "moveConfirm") return;
+    const lot = lotById(sh.lotId);
+    const cur = lotLocation(C.D.moves, sh.lotId, sh.date);
+    if (cur && cur.loc === sh.to) { toast("Le troupeau est déjà à cet endroit à cette date."); return; }
+    const rec = { id: uid("mv"), lotId: sh.lotId, date: sh.date, to: sh.to, createdAt: Date.now() };
     await store.save("moves", rec);
-    S.move = null; S.screen = "home"; window.scrollTo(0, 0);
+    S.sheet = null;
+    if (sh.from === "move") { S.move = null; S.screen = "home"; window.scrollTo(0, 0); }
+    else S.carte.pad = rec.to === OUT ? null : rec.to;
     if (navigator.vibrate) try { navigator.vibrate(30); } catch (_) {}
     toast(lot.name + " → " + padLabel(rec.to) + (rec.date !== C.today ? " (" + fmtShort(rec.date) + ")" : ""), async () => { await store.remove("moves", rec.id); toast("Déplacement annulé"); });
   },
 
   /* --- Carte --- */
   "carte-layer": (d) => { S.carte.layer = d.v; render(); },
-  "ct-parcel": (d) => { S.carte.parcel = d.id; S.carte.pad = null; render(); },
+  "ct-parcel": (d) => { S.carte.vb = parcelView(d.id); S.carte.pad = null; render(); },
   "ct-pad": (d) => {
-    const p = GEO.byId[d.id];
-    if (!S.carte.parcel || S.carte.parcel !== p.parcel) { S.carte.parcel = p.parcel; S.carte.pad = null; } else S.carte.pad = d.id;
+    const p = GEO.byId[d.id]; if (!p) return;
+    if (padScreenSize(p.id, S.carte.vb, carteMapH()) < MIN_TAP_PX) { S.carte.vb = parcelView(p.parcel); S.carte.pad = null; }
+    else S.carte.pad = p.id;
     render();
   },
-  "ct-unzoom": () => { S.carte.parcel = null; S.carte.pad = null; render(); },
+  "map-full": (d) => { if (d.ctx === "mv" && S.move) S.move.vb = null; else { S.carte.vb = null; S.carte.pad = null; } render(); },
+  "map-zoom": (d) => { gestures.zoomBy(d.ctx, Number(d.f)); },
   "carte-ref-today": () => { S.carte.ref = null; render(); },
 
   /* --- Calendrier --- */
   "cal-fs": () => { S.cal.fs = !S.cal.fs; render(); window.scrollTo(0, 0); },
   "cal-lot": (d) => { S.cal.lotId = d.lot; S.cal.sel = null; S.cal.year = null; render(); },
   "cal-sel": (d) => { S.cal.sel = { kind: d.kind, id: d.id }; render(); },
-  "cal-locate": (d) => { const p = GEO.byId[d.id]; if (!p) return; S.cal.fs = false; S.carte.parcel = p.parcel; S.carte.pad = p.id; go("carte"); },
+  "cal-locate": (d) => { const p = GEO.byId[d.id]; if (!p) return; S.cal.fs = false; S.carte.vb = parcelView(p.parcel); S.carte.pad = p.id; go("carte"); },
 
   /* --- Foin --- */
   "foin-open": (d) => { S.sheet = { type: "foin", lotId: d.lot, ftype: null, year: new Date().getFullYear(), date: C.today }; render(); },
@@ -192,12 +201,11 @@ const A = {
   /* --- Calendrier de date (feuille) --- */
   "date-month": (d) => { let m = S.sheet.m + Number(d.v), y = S.sheet.y; if (m < 0) { m = 11; y--; } if (m > 11) { m = 0; y++; } S.sheet.m = m; S.sheet.y = y; render(); },
   "date-pick": (d) => {
-    if (S.sheet.target === "move") { S.move.date = d.d; S.sheet = null; }
-    else { S.sheetBack.date = d.d; S.sheet = S.sheetBack; S.sheetBack = null; }
+    if (S.sheetBack) { S.sheetBack.date = d.d; S.sheet = S.sheetBack; S.sheetBack = null; } else S.sheet = null;
     render();
   },
   "sheet-close": () => {
-    if (S.sheet && S.sheet.type === "date" && S.sheet.target === "foin" && S.sheetBack) { S.sheet = S.sheetBack; S.sheetBack = null; }
+    if (S.sheet && S.sheet.type === "date" && S.sheetBack) { S.sheet = S.sheetBack; S.sheetBack = null; }
     else S.sheet = null;
     render();
   },
@@ -426,6 +434,14 @@ function openLot(lotId, eff) {
   const c = compForDate(store.live("comps"), lotId, eff);
   S.lotEdit = { lotId, eff, draft: c ? clone(c.items || {}) : {} };
 }
+function openMoveConfirm(lotId, to, from) {
+  const date = from === "move" && S.move && S.move.date ? S.move.date : C.today;
+  S.sheet = { type: "moveConfirm", lotId, to, date, from };
+  render();
+}
+const gestures = attachMapGestures(app, {
+  setView: (ctx, vb) => { if (ctx === "mv" && S.move) S.move.vb = vb; else if (ctx === "ct") S.carte.vb = vb; render(); }
+});
 function openSync() { S.syncForm = { url: SYNC.url, secret: SYNC.secret }; S.syncMsg = ""; go("plus", "sync"); }
 async function markBackup() { lastBackup = Date.now(); await store.setMeta("lastBackup", lastBackup); }
 
@@ -461,11 +477,14 @@ function askImportV8(v8, label) {
   const conv = fromV8(v8, GEO.aliases);
   const r = conv.report;
   const merging = C.D.moves.length > 0 || C.D.lots.length > 0;
-  S.sheet = { type: "confirm", title: (merging ? "Réimporter " : "Importer ") + label + " ?",
-    text: r.lots + " troupeau(x), " + r.comps + " composition(s), " + r.v8events + " mouvement(s) v8 → " + r.moves + " déplacement(s), " + r.foins + " foin." +
+  const v8Last = (v8.movements || []).reduce((m, x) => (x && x.dt > m ? x.dt : m), "");
+  const v9Last = C.D.moves.reduce((m, x) => (x.date > m ? x.date : m), "");
+  const stale = merging && v8Last && v9Last && v8Last < v9Last;
+  S.sheet = { type: "confirm", danger: stale, title: (stale ? "⚠️ Données v8 plus anciennes — " : "") + (merging ? "Réimporter " : "Importer ") + label + " ?",
+    text: (v8Last ? "Dernier mouvement v8 trouvé : " + fmtShort(v8Last, true) + "." + (stale ? " La v9 contient des déplacements jusqu’au " + fmtShort(v9Last, true) + " : ces données v8 sont probablement anciennes (autre navigateur ?). Ne réimportez pas, sauf si vous êtes sûr. " : " ") : "") + r.lots + " troupeau(x), " + r.comps + " composition(s), " + r.v8events + " mouvement(s) v8 → " + r.moves + " déplacement(s), " + r.foins + " foin." +
       (r.orphanOuts ? " " + r.orphanOuts + " sortie(s) sans entrée ignorée(s)." : "") + (r.badComps ? " " + r.badComps + " composition(s) vide(s) ou abîmée(s) écartée(s)." : "") + (r.ghostLots ? " " + r.ghostLots + " troupeau(x) supprimé(s) en v8 archivé(s)." : "") +
       (merging ? " Les données issues de la v8 seront remplacées ; vos saisies faites dans la v9 sont conservées." : ""),
-    ok: merging ? "Réimporter" : "Importer", run: async () => {
+    ok: stale ? "Réimporter quand même" : merging ? "Réimporter" : "Importer", run: async () => {
       if (merging) await mergeV8(conv.records); else await store.replaceAll(conv.records);
       if (conv.settings.restTarget) { SET.restTarget = conv.settings.restTarget; await saveSettings(); }
       S.restoreMsg = "Import v8 terminé : " + r.moves + " déplacements.";

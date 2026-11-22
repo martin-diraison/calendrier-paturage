@@ -82,27 +82,32 @@ export function viewHome(S, C) {
 }
 
 /* =================== DÉPLACER =================== */
+/* hauteur de carte : pas plus haute que nécessaire (la ferme est presque carrée) */
+const mapMaxH = () => Math.round(Math.max(280, Math.min(window.innerWidth, 760) - 32) * 1.2);
+export const moveMapH = () => Math.max(300, Math.min(560, mapMaxH(), window.innerHeight - 330));
+export const carteMapH = () => Math.max(320, Math.min(560, mapMaxH(), window.innerHeight - 300));
+
 export function viewMove(S, C) {
   const M = S.move, lot = lotOf(C, M.lotId);
   if (!lot) return `<div class="screen">Troupeau introuvable.</div>`;
   const target = C.settings.restTarget;
-  const cur = lotLocation(C.D.moves, lot.id, M.date);
+  const cur = lotLocation(C.D.moves, lot.id, C.today);
   const curPad = cur && cur.loc !== OUT ? cur.loc : null;
-  const st = C.statusAt(M.date);
+  const st = C.statusAt(C.today);
   let h = `<div class="topbar"><div class="row" style="flex-wrap:nowrap;gap:4px"><button type="button" class="iconbtn" data-a="move-cancel" aria-label="Retour">${icon("back", 24)}</button>
     <div style="min-width:0;flex:1 1 auto"><div class="ttl">${curPad ? "Déplacer" : "Mettre au pré"} ${esc(lot.name)}</div>
-    <div class="sub small">${cur ? (cur.loc === OUT ? "Hors-paddock depuis le " + esc(fmtShort(cur.since)) : "Actuellement : " + esc(padLabel(cur.loc)) + " · " + daysBetween(cur.since, M.date) + " j") : "Pas encore placé"}</div></div></div>
+    <div class="sub small">${cur ? (cur.loc === OUT ? "Hors-paddock depuis le " + esc(fmtShort(cur.since)) : "Actuellement : " + esc(padLabel(cur.loc)) + " · " + daysBetween(cur.since, C.today) + " j") : "Pas encore placé"}</div></div></div>
     <div class="seg" style="margin-top:10px"><button type="button" class="${M.view === "map" ? "on" : ""}" data-a="move-view" data-v="map">Carte</button><button type="button" class="${M.view === "list" ? "on" : ""}" data-a="move-view" data-v="list">Liste</button></div></div>`;
-  h += `<div class="screen with-panel">`;
+  h += `<div class="screen">`;
   if (curPad) {
-    h += `<button type="button" class="pick${M.sel === OUT ? " sel" : " dashed"}" style="margin-bottom:12px" data-a="move-pick" data-id="${OUT}">${icon("shelter", 26, 'style="color:var(--muted)"')}<span class="grow"><span class="t1">Hors-paddock</span><span class="t2">Piste, stabulation… · ferme le séjour en cours</span></span></button>`;
+    h += `<button type="button" class="pick dashed" style="margin-bottom:12px" data-a="move-pick" data-id="${OUT}">${icon("shelter", 26, 'style="color:var(--muted)"')}<span class="grow"><span class="t1">Hors-paddock</span><span class="t2">Piste, stabulation… · ferme le séjour en cours</span></span></button>`;
   }
   if (M.view === "map") {
-    h += `<div class="small muted" style="margin-bottom:8px">${M.parcel ? esc(parcelLabel(M.parcel)) + " — touchez le paddock voulu" : "Touchez une parcelle pour zoomer"}</div>`;
+    h += `<div class="small muted" style="margin-bottom:8px">Pincez pour zoomer · touchez le paddock de destination</div>`;
     h += mapHTML({
-      ctx: "mv", parcel: M.parcel, selId: M.sel, height: Math.max(300, Math.min(460, window.innerHeight - 430)),
+      ctx: "mv", vb: M.vb, selId: null, height: moveMapH(),
       look: (id) => ({ cls: restClass(st[id], target), title: padLabel(id) + " — " + statusText(st[id], target) }),
-      markers: C.markersAt(M.date), showNames: false
+      markers: C.markersAt(C.today), showNames: true
     });
     h += legendHTML(target);
   } else {
@@ -121,33 +126,41 @@ export function viewMove(S, C) {
     const all = M.showAll || q;
     const row = (p) => {
       const r = restOf(p), c = restClass(st[p.id], target);
-      return `<button type="button" class="pick${M.sel === p.id ? " sel" : ""}" data-a="move-pick" data-id="${esc(p.id)}"><span class="grow"><span class="t1">${esc(padLabel(p.id))}</span><span class="t2">${fmtNum(p.area, 2)} ha${p.parcel === curParcel ? " · même parcelle" : ""}</span></span><span class="badge ${CLS_BADGE[c]}">${r === -1 ? "Jamais pâturé" : "Repos " + r + " j"}</span></button>`;
+      return `<button type="button" class="pick" data-a="move-pick" data-id="${esc(p.id)}"><span class="grow"><span class="t1">${esc(padLabel(p.id))}</span><span class="t2">${fmtNum(p.area, 2)} ha${p.parcel === curParcel ? " · même parcelle" : ""}</span></span><span class="badge ${CLS_BADGE[c]}">${r === -1 ? "Jamais pâturé" : "Repos " + r + " j"}</span></button>`;
     };
     h += `<div class="spread" style="margin:18px 2px 8px;align-items:baseline"><b>Prêts</b><span class="small muted">${ready.length} paddocks · même parcelle d’abord</span></div><div class="stack" style="gap:8px">${(all ? ready : ready.slice(0, 10)).map(row).join("") || '<div class="notice">Aucun.</div>'}</div>`;
     h += `<div class="spread" style="margin:20px 2px 8px;align-items:baseline"><b>Encore en repos</b><span class="small muted">${resting.length} paddocks</span></div><div class="stack" style="gap:8px">${(all ? resting : resting.slice(0, 5)).map(row).join("") || '<div class="notice">Aucun.</div>'}</div>`;
     if (!all && (ready.length > 10 || resting.length > 5)) h += `<button type="button" class="btn block" style="margin-top:12px" data-a="move-all">Afficher tous les paddocks</button>`;
   }
-  h += `</div>`;
-  /* panneau de validation */
-  h += `<div class="panel">`;
-  if (!M.sel) h += `<div class="empty">Touchez un paddock pour le choisir</div>` + `<div class="small muted" style="text-align:center">Date : ${esc(dateWords(M.date, C.today))}</div>`;
-  else {
-    const warns = [];
-    if (M.sel === OUT) h += `<div class="small muted">Destination</div><div class="dest">Hors-paddock (piste, stabulation…)</div>`;
-    else {
-      const s = st[M.sel], others = s ? s.occupants.filter((x) => x !== lot.id) : [];
-      h += `<div class="small muted">Destination</div><div class="dest">${esc(padLabel(M.sel))} · ${fmtNum(GEO.byId[M.sel].area, 2)} ha</div>`;
-      if (cur && cur.loc === M.sel) warns.push("Le troupeau est déjà dans ce paddock à cette date.");
-      if (others.length) warns.push("Déjà occupé par " + others.map((id) => (lotOf(C, id) || { name: id }).name).join(", "));
-      else if (s && s.status === "rest" && s.rest < target) warns.push("Repos " + s.rest + " j — objectif " + target + " j");
-    }
-    const lastMove = C.D.moves.filter((m) => m.lotId === lot.id).sort((a, b) => (a.date < b.date ? 1 : -1))[0];
-    if (lastMove && M.date < lastMove.date) warns.push("Date antérieure au dernier déplacement (" + fmtShort(lastMove.date) + ") : la saisie s’insérera dans l’historique.");
-    h += warns.map((w) => `<div class="warnline">${icon("warn", 18)}${esc(w)}</div>`).join("");
-    h += dateChips(C, M.date, "move");
-    h += `<button type="button" class="btn primary big block" style="margin-top:10px" data-a="move-confirm">${M.sel === OUT ? "Sortir du paddock" : "Déplacer ici"} ${esc(dateWords(M.date, C.today))}</button>`;
-  }
   return h + `</div>`;
+}
+
+/* Panneau de validation d'un déplacement (commun à l'écran Déplacer et à l'onglet Carte) */
+function moveConfirmBody(sh, C) {
+  const lot = lotOf(C, sh.lotId), target = C.settings.restTarget;
+  if (!lot) return "Troupeau introuvable.";
+  const cur = lotLocation(C.D.moves, lot.id, sh.date);
+  const st = C.statusAt(sh.date);
+  const warns = [];
+  let dest;
+  if (sh.to === OUT) dest = "Hors-paddock (piste, stabulation…)";
+  else {
+    const s = st[sh.to], others = s ? s.occupants.filter((x) => x !== lot.id) : [];
+    dest = padLabel(sh.to) + " · " + fmtNum(GEO.byId[sh.to].area, 2) + " ha";
+    if (others.length) warns.push("Déjà occupé par " + others.map((id) => (lotOf(C, id) || { name: id }).name).join(", "));
+    else if (s && s.status === "rest" && s.rest < target) warns.push("Repos " + s.rest + " j — objectif " + target + " j");
+    else if (s && s.status === "never") warns.push(""); // pas d'alerte
+  }
+  if (cur && cur.loc === sh.to) warns.push(sh.to === OUT ? "Le troupeau est déjà hors-paddock à cette date." : "Le troupeau est déjà dans ce paddock à cette date.");
+  const lastMove = C.D.moves.filter((m) => m.lotId === lot.id).sort((a, b) => (a.date < b.date ? 1 : -1))[0];
+  if (lastMove && sh.date < lastMove.date) warns.push("Date antérieure au dernier déplacement (" + fmtShort(lastMove.date) + ") : la saisie s’insérera dans l’historique.");
+  return `<div class="row" style="flex-wrap:nowrap">${dot(lot.color)}<div class="ttl">${sh.to === OUT ? "Sortir" : "Déplacer"} ${esc(lot.name)}</div></div>
+    <div class="small muted" style="margin-top:4px">${cur ? (cur.loc === OUT ? "Actuellement hors-paddock" : "Actuellement : " + esc(padLabel(cur.loc))) : "Pas encore placé"}</div>
+    <div class="small muted" style="margin-top:12px">Destination</div><div style="font-size:19px;font-weight:700">${esc(dest)}</div>
+    ${warns.filter(Boolean).map((w) => `<div class="warnline">${icon("warn", 18)}${esc(w)}</div>`).join("")}
+    ${dateChips(C, sh.date, "mc")}
+    <button type="button" class="btn primary big block" style="margin-top:12px" data-a="mc-confirm">${sh.to === OUT ? "Sortir du paddock" : "Déplacer ici"} ${esc(dateWords(sh.date, C.today))}</button>
+    <button type="button" class="btn block" style="margin-top:8px" data-a="sheet-close">Annuler</button>`;
 }
 
 function legendHTML(target) {
@@ -166,10 +179,10 @@ export function viewCarte(S, C) {
   const st = C.statusAt(ref);
   const pr = K.layer === "pressure" || K.pad ? C.pressureAt(ref) : null;
   const pMax = C.settings.pressureMax;
-  let h = `<div class="screen"><h1>Carte</h1><div class="sub">${ref === C.today ? "Situation aujourd’hui" : "Situation au " + esc(fmtShort(ref, true))} · ${K.parcel ? esc(parcelLabel(K.parcel)) : "touchez une parcelle pour zoomer"}</div>
+  let h = `<div class="screen"><h1>Carte</h1><div class="sub">${ref === C.today ? "Situation aujourd’hui" : "Situation au " + esc(fmtShort(ref, true))} · pincez pour zoomer, touchez un paddock</div>
     <div class="seg" style="margin:12px 0"><button type="button" class="${K.layer !== "pressure" ? "on" : ""}" data-a="carte-layer" data-v="rest">Repos</button><button type="button" class="${K.layer === "pressure" ? "on" : ""}" data-a="carte-layer" data-v="pressure">Pression</button></div>`;
   h += mapHTML({
-    ctx: "ct", parcel: K.parcel, selId: K.pad, height: Math.max(320, Math.min(520, window.innerHeight - 330)),
+    ctx: "ct", vb: K.vb, selId: K.pad, height: carteMapH(),
     look: (id) => {
       if (K.layer === "pressure") {
         const v = pr.byPad[id] ? pr.byPad[id].pressure : null, f = v > 0 ? pressureColor(v, pMax) : null;
@@ -204,7 +217,7 @@ export function viewCarte(S, C) {
     const avail = C.D.lots.filter((l) => !l.archived && !s.occupants.includes(l.id));
     if (avail.length && ref === C.today) {
       h += `<div class="small muted" style="margin-top:12px">Y mettre un troupeau</div><div class="chips" style="margin-top:6px">` +
-        avail.map((l) => `<button type="button" class="chip" style="border-color:${esc(l.color)};color:${esc(l.color)}" data-a="move-start" data-lot="${esc(l.id)}" data-pad="${esc(p.id)}">${esc(l.name)}</button>`).join("") + `</div>`;
+        avail.map((l) => `<button type="button" class="chip" style="border-color:${esc(l.color)};color:${esc(l.color)}" data-a="mc-open" data-lot="${esc(l.id)}" data-pad="${esc(p.id)}">${esc(l.name)}</button>`).join("") + `</div>`;
     }
     h += `</div>`;
   }
@@ -303,7 +316,7 @@ export function viewPlus(S, C) {
     ${item("sub-exports", "Exports et sauvegarde", "CSV, ZIP, sauvegarde JSON, restauration")}
     ${item("sub-settings", "Réglages", "Objectif de repos " + C.settings.restTarget + " j · catégories UGB · thème")}
     ${item("sub-mapcfg", "Parcelles et paddocks", GEO.parcels.length + " parcelles · " + GEO.pads.length + " paddocks · " + fmtNum(GEO.pads.reduce((s, p) => s + p.area, 0), 1) + " ha")}
-  </div><p class="small muted" style="margin:14px 4px">Suivi pâturage v9.0.4 · ${C.D.moves.length} déplacements · ${C.D.foins.length} foin</p></div>`;
+  </div><p class="small muted" style="margin:14px 4px">Suivi pâturage v9.1.0 · ${C.D.moves.length} déplacements · ${C.D.foins.length} foin</p></div>`;
 }
 const subHead = (title, back = "plus-back") => `<div class="row" style="flex-wrap:nowrap;gap:4px;margin:-8px 0 8px -10px"><button type="button" class="iconbtn" data-a="${back}" aria-label="Retour">${icon("back", 24)}</button><h1 style="font-size:24px">${title}</h1></div>`;
 
@@ -450,9 +463,11 @@ export function viewSheet(S, C) {
       <div class="small muted" style="margin-top:14px">Année de fauche</div><div class="chips fill" style="margin-top:6px">${[yr, yr - 1, yr - 2].map((y) => `<button type="button" class="chip${sh.year === y ? " on" : ""}" data-a="foin-year" data-v="${y}">${y}</button>`).join("")}</div>
       <div class="small muted" style="margin-top:14px">Date</div>${dateChips(C, sh.date, "foin")}
       <button type="button" class="btn primary big block" style="margin-top:18px" data-a="foin-save" ${sh.ftype ? "" : "disabled"}>${sh.ftype ? "Enregistrer" : "Choisissez le type"}</button>`;
+  } else if (sh.type === "moveConfirm") {
+    body = moveConfirmBody(sh, C);
   } else if (sh.type === "date") {
     const y = sh.y, m = sh.m, first = new Date(y, m, 1), lead = (first.getDay() + 6) % 7, n = new Date(y, m + 1, 0).getDate();
-    const cur = sh.target === "move" ? S.move.date : (S.sheetBack && S.sheetBack.date);
+    const cur = S.sheetBack && S.sheetBack.date;
     const nextDis = y * 12 + m >= +C.today.slice(0, 4) * 12 + +C.today.slice(5, 7) - 1;
     let cells = "";
     for (let i = 0; i < lead; i++) cells += `<span></span>`;
@@ -460,7 +475,7 @@ export function viewSheet(S, C) {
       const iso = y + "-" + String(m + 1).padStart(2, "0") + "-" + String(d).padStart(2, "0");
       cells += `<button type="button" class="${iso === cur ? "on" : ""}${iso === C.today ? " today" : ""}" data-a="date-pick" data-d="${iso}" ${iso > C.today ? "disabled" : ""} aria-label="${d} ${MOIS[m]} ${y}">${d}</button>`;
     }
-    body = `<div class="ttl">${sh.target === "move" ? "Date du déplacement" : "Date de la distribution"}</div>
+    body = `<div class="ttl">${sh.target === "foin" ? "Date de la distribution" : "Date du déplacement"}</div>
       <div class="spread" style="align-items:center;margin-top:12px"><button type="button" class="btn" style="width:48px;padding:0" data-a="date-month" data-v="-1" aria-label="Mois précédent">${icon("back", 22)}</button>
       <b style="font-size:18px">${MOIS[m].charAt(0).toUpperCase() + MOIS[m].slice(1)} ${y}</b>
       <button type="button" class="btn" style="width:48px;padding:0" data-a="date-month" data-v="1" ${nextDis ? "disabled" : ""} aria-label="Mois suivant">${icon("next", 22)}</button></div>

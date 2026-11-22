@@ -122,7 +122,9 @@ input.num { width: 96px; text-align: right; }
 
 /* Carte */
 .map { position: relative; width: 100%; border-radius: 16px; overflow: hidden; background: #2B3326; border: 1px solid var(--field); touch-action: manipulation; }
-.map svg { display: block; width: 100%; height: 100%; }
+.map svg { display: block; width: 100%; height: 100%; touch-action: none; cursor: grab; }
+.map .mapbtns { position: absolute; right: 8px; top: 8px; display: flex; flex-direction: column; gap: 6px; }
+.map .mapbtn { width: 44px; height: 44px; border-radius: 12px; border: none; background: rgba(255,255,255,.95); color: #1E261F; font-size: 24px; font-weight: 700; line-height: 1; box-shadow: 0 1px 4px rgba(0,0,0,.25); }
 .map .pad { fill-opacity: .5; stroke: #FFFFFF; stroke-opacity: .8; stroke-width: 1px; vector-effect: non-scaling-stroke; stroke-linejoin: round; cursor: pointer; }
 .map .pad.dim { fill-opacity: .12; stroke-opacity: .35; }
 .map .pad.sel { stroke: #FFD43B; stroke-opacity: 1; stroke-width: 4px; fill-opacity: .6; }
