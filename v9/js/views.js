@@ -206,6 +206,9 @@ export function viewCarte(S, C) {
   const pMax = C.settings.pressureMax;
   let h = `<div class="screen"><h1>Carte</h1><div class="sub">${ref === C.today ? "Situation aujourd’hui" : "Situation au " + esc(fmtShort(ref, true))} · pincez pour zoomer, touchez un paddock</div>
     <div class="seg" style="margin:12px 0"><button type="button" class="${K.layer !== "pressure" ? "on" : ""}" data-a="carte-layer" data-v="rest">Repos</button><button type="button" class="${K.layer === "pressure" ? "on" : ""}" data-a="carte-layer" data-v="pressure">Pression</button></div>`;
+  /* troupeaux au pré : un appui montre leur paddock (et le bouton « Sortir → hors-paddock ») */
+  const inPads = C.D.lots.filter((l) => !l.archived).map((l) => ({ l, x: lotLocation(C.D.moves, l.id, ref) })).filter((o) => o.x && o.x.loc !== OUT);
+  if (inPads.length) h += `<div class="chips scroll" style="margin-bottom:10px" data-hscroll="ct-lots"><span class="small muted" style="align-self:center;flex:0 0 auto">Au pré :</span>` + inPads.map((o) => `<button type="button" class="chip${K.pad === o.x.loc ? " on" : ""}" style="min-height:44px;${K.pad === o.x.loc ? `background:${esc(o.l.color)};border-color:${esc(o.l.color)}` : `border-color:${esc(o.l.color)}`}" data-a="ct-lot" data-pad="${esc(o.x.loc)}">${dot(o.l.color)}${esc(o.l.name)}</button>`).join("") + `</div>`;
   h += mapHTML({
     ctx: "ct", vb: K.vb, selId: K.pad, height: carteMapH(),
     look: (id) => {
@@ -217,9 +220,10 @@ export function viewCarte(S, C) {
     },
     markers: C.markersAt(ref)
   });
-  if (K.layer === "pressure") h += `<div class="grad" style="background:linear-gradient(90deg,hsl(120,75%,45%),hsl(60,75%,45%),hsl(0,75%,45%))"></div><div class="spread small muted" style="margin-top:4px"><span>0</span><span>Pression ${esc(pr.year)} jusqu’au ${esc(fmtShort(ref))} (UGB/ha/an)</span><span>${fmtNum(pMax, 1)}+</span></div>`;
-  else h += legendHTML(target);
-  h += `<details class="opts"${K.optsOpen ? " open" : ""}><summary>Réglages de la carte</summary>
+  let tail = ""; // légende et réglages : sous la fiche du paddock choisi
+  if (K.layer === "pressure") tail += `<div class="grad" style="background:linear-gradient(90deg,hsl(120,75%,45%),hsl(60,75%,45%),hsl(0,75%,45%))"></div><div class="spread small muted" style="margin-top:4px"><span>0</span><span>Pression ${esc(pr.year)} jusqu’au ${esc(fmtShort(ref))} (UGB/ha/an)</span><span>${fmtNum(pMax, 1)}+</span></div>`;
+  else tail += legendHTML(target);
+  tail += `<details class="opts"${K.optsOpen ? " open" : ""}><summary>Réglages de la carte</summary>
     <label class="field"><span>Date de référence (situation passée)</span><input class="input" type="date" max="${C.today}" value="${esc(ref)}" data-in="carte-ref"></label>
     <div class="row" style="margin-top:8px">
       <label class="field" style="flex:1 1 140px"><span>Objectif de repos (j)</span><input class="input" type="number" min="1" max="365" value="${target}" data-in="set-restTarget"></label>
@@ -236,7 +240,7 @@ export function viewCarte(S, C) {
     } else if (s.status === "rest") { status = "Repos " + s.rest + " j" + (s.rest >= target ? " — prêt" : " — trop tôt"); detail = "Dernière sortie le " + fmtShort(s.lastEnd, true); }
     else { status = "Jamais pâturé"; detail = "Aucun historique"; }
     const prv = pr && pr.byPad[p.id] ? pr.byPad[p.id].pressure : null;
-    h += `<div class="card" style="margin-top:14px"><div class="spread" style="align-items:baseline"><div style="font-size:20px;font-weight:700">${esc(padLabel(p.id))}</div><div class="small muted">${fmtNum(p.area, 2)} ha</div></div>
+    h += `<div class="card" id="padcard" style="margin-top:12px"><div class="spread" style="align-items:baseline"><div style="font-size:20px;font-weight:700">${esc(padLabel(p.id))}</div><div class="small muted">${fmtNum(p.area, 2)} ha</div></div>
       <div class="row" style="margin-top:6px;flex-wrap:nowrap"><i style="width:14px;height:14px;border-radius:4px;background:var(--c-${c});display:inline-block;flex:0 0 auto"></i><b>${esc(status)}</b></div>
       ${prv ? `<div class="small muted" style="margin-top:2px">Pression ${fmtNum(prv, 2)} UGB/ha/an</div>` : ""}
       ${padHistHTML(C, p.id, ref)}`;
@@ -251,7 +255,7 @@ export function viewCarte(S, C) {
     }
     h += `</div>`;
   }
-  return h + `</div>`;
+  return h + tail + `</div>`;
 }
 
 /* =================== CALENDRIER =================== */
@@ -347,7 +351,7 @@ export function viewPlus(S, C) {
     ${item("sub-exports", "Exports et sauvegarde", "CSV, ZIP, sauvegarde JSON, restauration")}
     ${item("sub-settings", "Réglages", "Objectif de repos " + C.settings.restTarget + " j · catégories UGB · thème")}
     ${item("sub-mapcfg", "Parcelles et paddocks", GEO.parcels.length + " parcelles · " + GEO.pads.length + " paddocks · " + fmtNum(GEO.pads.reduce((s, p) => s + p.area, 0), 1) + " ha")}
-  </div><p class="small muted" style="margin:14px 4px">Suivi pâturage v9.2.0 · ${C.D.moves.length} déplacements · ${C.D.foins.length} foin</p></div>`;
+  </div><p class="small muted" style="margin:14px 4px">Suivi pâturage v9.2.1 · ${C.D.moves.length} déplacements · ${C.D.foins.length} foin</p></div>`;
 }
 const subHead = (title, back = "plus-back") => `<div class="row" style="flex-wrap:nowrap;gap:4px;margin:-8px 0 8px -10px"><button type="button" class="iconbtn" data-a="${back}" aria-label="Retour">${icon("back", 24)}</button><h1 style="font-size:24px">${title}</h1></div>`;
 

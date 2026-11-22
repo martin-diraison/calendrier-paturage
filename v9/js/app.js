@@ -10,7 +10,7 @@ import { viewHome, viewMove, viewCarte, viewCal, viewPlus, viewNav, viewSheet, v
 import { parcelView, padScreenSize, MIN_TAP_PX } from "./mapsvg.js";
 import { attachMapGestures } from "./mapgesture.js";
 
-const VERSION = "9.2.0";
+const VERSION = "9.2.1";
 const app = document.getElementById("app");
 let BASE_CARTE = null;
 const SET = { restTarget: 45, pressureMax: 2, longStay: 10, theme: "light" };
@@ -168,11 +168,12 @@ const A = {
   /* --- Carte --- */
   "carte-layer": (d) => { S.carte.layer = d.v; render(); },
   "ct-parcel": (d) => { S.carte.vb = parcelView(d.id); S.carte.pad = null; render(); },
+  "ct-lot": (d) => { const p = GEO.byId[d.pad]; if (!p) return; S.carte.pad = p.id; S.carte.vb = parcelView(p.parcel); render(); showPadCard(); },
   "ct-pad": (d) => {
     const p = GEO.byId[d.id]; if (!p) return;
     if (padScreenSize(p.id, S.carte.vb, carteMapH()) < MIN_TAP_PX) { S.carte.vb = parcelView(p.parcel); S.carte.pad = null; }
     else S.carte.pad = p.id;
-    render();
+    render(); if (S.carte.pad) showPadCard();
   },
   "map-full": (d) => { if (d.ctx === "mv" && S.move) S.move.vb = null; else { S.carte.vb = null; S.carte.pad = null; } render(); },
   "map-zoom": (d) => { gestures.zoomBy(d.ctx, Number(d.f)); },
@@ -466,6 +467,13 @@ function openLot(lotId, eff) {
 /* dernière saisie de foin d'un troupeau (pour reprendre son type et son année de fauche) */
 function lastFoin(lotId) {
   return store.live("foins").filter((f) => f.lotId === lotId).sort((a, b) => (a.date !== b.date ? (a.date < b.date ? 1 : -1) : (b.createdAt || 0) - (a.createdAt || 0)))[0] || null;
+}
+/* fiche du paddock choisi : la faire apparaître à l'écran (elle est sous la carte) */
+function showPadCard() {
+  const el = document.getElementById("padcard"); if (!el) return;
+  const r = el.getBoundingClientRect();
+  const bottom = window.innerHeight - 84; // au-dessus de la barre d'onglets
+  if (r.bottom > bottom) window.scrollBy({ top: Math.min(r.bottom - bottom, r.top - 70), behavior: "smooth" });
 }
 function openMoveConfirm(lotId, to, from) {
   const date = from === "move" && S.move && S.move.date ? S.move.date : C.today;
