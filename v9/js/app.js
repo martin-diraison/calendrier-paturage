@@ -8,7 +8,7 @@ import { fromV8, isV8, readV8FromThisBrowser, LOT_COLORS } from "./migrate.js";
 import * as X from "./exports.js";
 import { viewHome, viewMove, viewCarte, viewCal, viewPlus, viewNav, viewSheet, viewToast } from "./views.js";
 
-const VERSION = "9.0.0";
+const VERSION = "9.0.1";
 const app = document.getElementById("app");
 let BASE_CARTE = null;
 const SET = { restTarget: 45, pressureMax: 2, longStay: 10, theme: "light" };
@@ -400,14 +400,44 @@ function openLot(lotId, eff) {
 function openSync() { S.syncForm = { url: SYNC.url, secret: SYNC.secret }; S.syncMsg = ""; go("plus", "sync"); }
 async function markBackup() { lastBackup = Date.now(); await store.setMeta("lastBackup", lastBackup); }
 
+/* Réimport v8 sur un appareil qui a déjà des données : les enregistrements issus de la v8
+   (identifiants « id_… ») sont remplacés par la nouvelle conversion, ceux qui n'existent plus
+   sont marqués supprimés (pour que la suppression parte aussi au tableur), et tout ce qui a été
+   saisi dans la v9 est conservé. */
+async function mergeV8(records) {
+  const list = [];
+  for (const e of store.ENTITIES) {
+    const fresh = new Set((records[e] || []).map((r) => r.id));
+    if (e === "moves" || e === "foins" || e === "lots") {
+      for (const r of store.DATA[e]) if (!r.deleted && String(r.id).startsWith("id_") && !fresh.has(r.id)) { r.deleted = true; list.push({ entity: e, rec: r }); }
+    }
+    if (e === "comps") {
+      /* compositions abîmées d'un import précédent : troupeau inconnu ou effectifs vides */
+      const lotIds = new Set((records.lots || []).map((l) => l.id).concat(store.DATA.lots.filter((l) => !l.deleted).map((l) => l.id)));
+      for (const r of store.DATA.comps) {
+        if (r.deleted || fresh.has(r.id)) continue;
+        if (!lotIds.has(r.lotId) || !Object.values(r.items || {}).some((n) => Number(n) > 0)) { r.deleted = true; list.push({ entity: e, rec: r }); }
+      }
+    }
+    for (const r of records[e] || []) {
+      const cur = store.get(e, r.id);
+      if (e === "lots" && cur) { r.color = cur.color; r.archived = cur.archived || r.archived; r.name = cur.name; }
+      list.push({ entity: e, rec: r });
+    }
+  }
+  await store.saveMany(list);
+}
+
 function askImportV8(v8, label) {
   const conv = fromV8(v8, GEO.aliases);
   const r = conv.report;
-  S.sheet = { type: "confirm", title: "Importer " + label + " ?",
+  const merging = C.D.moves.length > 0 || C.D.lots.length > 0;
+  S.sheet = { type: "confirm", title: (merging ? "Réimporter " : "Importer ") + label + " ?",
     text: r.lots + " troupeau(x), " + r.comps + " composition(s), " + r.v8events + " mouvement(s) v8 → " + r.moves + " déplacement(s), " + r.foins + " foin." +
-      (r.orphanOuts ? " " + r.orphanOuts + " sortie(s) sans entrée seront ignorées." : "") + (C.D.moves.length || C.D.lots.length ? " Les données actuelles de cet appareil seront remplacées." : ""),
-    ok: "Importer", run: async () => {
-      await store.replaceAll(conv.records);
+      (r.orphanOuts ? " " + r.orphanOuts + " sortie(s) sans entrée ignorée(s)." : "") + (r.badComps ? " " + r.badComps + " composition(s) vide(s) ou abîmée(s) écartée(s)." : "") + (r.ghostLots ? " " + r.ghostLots + " troupeau(x) supprimé(s) en v8 archivé(s)." : "") +
+      (merging ? " Les données issues de la v8 seront remplacées ; vos saisies faites dans la v9 sont conservées." : ""),
+    ok: merging ? "Réimporter" : "Importer", run: async () => {
+      if (merging) await mergeV8(conv.records); else await store.replaceAll(conv.records);
       if (conv.settings.restTarget) { SET.restTarget = conv.settings.restTarget; await saveSettings(); }
       S.restoreMsg = "Import v8 terminé : " + r.moves + " déplacements.";
       go("home");
@@ -419,6 +449,17 @@ async function restoreFile(file) {
   let obj;
   try { obj = JSON.parse(await file.text()); } catch (_) { S.restoreMsg = "Fichier illisible (JSON attendu)."; render(); return; }
   if (isV8(obj)) { askImportV8(obj, "la sauvegarde v8 « " + file.name + " »"); return; }
+  if (obj && obj.format === "paturage-v9-ajout" && obj.records) {
+    /* fichier de réparation : ajoute / met à jour des enregistrements, ne supprime rien */
+    const list = [];
+    for (const e of store.ENTITIES) for (const r of obj.records[e] || []) if (r && r.id) list.push({ entity: e, rec: r });
+    const parts = store.ENTITIES.filter((e) => (obj.records[e] || []).length).map((e) => obj.records[e].length + " " + ({ lots: "troupeau(x)", cats: "catégorie(s)", comps: "composition(s)", moves: "déplacement(s)", foins: "foin" })[e]);
+    S.sheet = { type: "confirm", title: "Ajouter « " + file.name + " » ?", text: (obj.description ? obj.description + " " : "") + "Contenu : " + parts.join(", ") + ". Rien n’est supprimé ; les éléments de même identifiant sont mis à jour.", ok: "Ajouter", run: async () => {
+      await store.saveMany(list);
+      S.restoreMsg = "Ajout terminé : " + parts.join(", ") + "."; render(); toast("Fichier ajouté");
+    } };
+    render(); return;
+  }
   if (!obj || obj.format !== "paturage-v9" || !obj.records) { S.restoreMsg = "Ce fichier n’est pas une sauvegarde de l’appli."; render(); return; }
   const n = (obj.records.moves || []).filter((m) => !m.deleted).length;
   S.sheet = { type: "confirm", title: "Restaurer « " + file.name + " » ?", text: "Sauvegarde du " + String(obj.exportedAt || "").slice(0, 10) + " : " + n + " déplacement(s). Les données de cet appareil seront remplacées.", ok: "Restaurer", danger: true, run: async () => {

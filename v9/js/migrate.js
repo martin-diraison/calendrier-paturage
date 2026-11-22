@@ -15,8 +15,12 @@ export function fromV8(v8, aliases = {}) {
   const cats = (v8.categories || []).map((c) => stamp({ id: String(c.id), name: String(c.name || c.id), ugb: Number(c.ugb) || 0 }));
   const seen = {};
   const comps = [];
+  const lotIds = new Set(lots.map((l) => l.id));
+  let badComps = 0;
   for (const c of v8.compositions || []) {
     if (!c || !c.lotId || !c.eff) continue;
+    /* compositions abîmées (identifiant de troupeau tronqué, effectifs vides) : écartées */
+    if (!lotIds.has(c.lotId) || !Object.values(c.items || {}).some((n) => Number(n) > 0)) { badComps++; continue; }
     const id = c.lotId + "@" + String(c.eff).slice(0, 10);
     if (seen[id]) continue; seen[id] = 1;
     comps.push(stamp({ id, lotId: c.lotId, eff: String(c.eff).slice(0, 10), items: Object.assign({}, c.items || {}) }));
@@ -26,12 +30,13 @@ export function fromV8(v8, aliases = {}) {
   const foins = (v8.foins || []).filter((f) => f && f.lotId && f.dt).map((f) => stamp({
     id: String(f.id), lotId: f.lotId, date: f.dt, type: f.type === "enrubanne" ? "enrubanne" : "foin", year: Number(f.year) || Number(String(f.dt).slice(0, 4)), createdAt: 0
   }));
-  /* Troupeaux référencés mais absents de la liste (données partielles) */
+  /* Troupeaux supprimés en v8 dont l'historique est resté : gardés, mais archivés (masqués) */
   const have = new Set(lots.map((l) => l.id));
-  for (const m of moves) if (!have.has(m.lotId)) { have.add(m.lotId); lots.push(stamp({ id: m.lotId, name: m.lotId, color: LOT_COLORS[lots.length % LOT_COLORS.length], archived: false })); }
+  let ghosts = 0;
+  for (const m of moves) if (!have.has(m.lotId)) { have.add(m.lotId); ghosts++; lots.push(stamp({ id: m.lotId, name: "Troupeau supprimé (v8) " + ghosts, color: "#8C9389", archived: true })); }
   return {
     records: { lots, cats, comps, moves, foins },
-    report: { lots: lots.length, cats: cats.length, comps: comps.length, moves: moves.length, foins: foins.length, v8events: (v8.movements || []).length, orphanOuts: conv.orphanOuts.length, redundantIns: conv.redundantIns.length },
+    report: { lots: lots.length - ghosts, ghostLots: ghosts, cats: cats.length, comps: comps.length, badComps, moves: moves.length, foins: foins.length, v8events: (v8.movements || []).length, orphanOuts: conv.orphanOuts.length, redundantIns: conv.redundantIns.length, absorbedOuts: conv.absorbedOuts.length },
     settings: { restTarget: v8.ui && Number(v8.ui.restTarget) > 0 ? Number(v8.ui.restTarget) : null }
   };
 }

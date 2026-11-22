@@ -1,7 +1,7 @@
 /* Service worker : l'appli s'ouvre sans réseau.
    Fichiers de l'appli : servis depuis le cache, mis à jour en arrière-plan.
    Les échanges avec le script Google ne passent jamais par le cache. */
-const CACHE = "paturage-v9.0.0";
+const CACHE = "paturage-v9.0.1";
 const SHELL = [
   "./", "index.html", "manifest.webmanifest", "css/app.css", "data/carte.json", "Fond.png", "icon-192.png", "icon-512.png",
   "js/app.js", "js/util.js", "js/geo.js", "js/domain.js", "js/migrate.js", "js/store.js", "js/sync.js", "js/exports.js",

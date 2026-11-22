@@ -246,7 +246,7 @@ export function viewCal(S, C) {
   for (let d = parseISO(r0); ; d.setMonth(d.getMonth() + 1)) {
     const iso = d.getFullYear() + "-" + String(d.getMonth() + 1).padStart(2, "0") + "-01";
     if (iso > r1) break;
-    head += `<div class="g-month" style="left:${x(iso)}px">${MOIS_COURT[d.getMonth()]}${d.getMonth() === 0 ? " " + d.getFullYear() : ""}</div>`;
+    head += `<div class="g-month" style="left:${x(iso)}px">${dw * 30 >= 34 ? MOIS_COURT[d.getMonth()] : MOIS_COURT[d.getMonth()].charAt(0).toUpperCase()}${d.getMonth() === 0 && dw * 30 >= 34 ? " " + d.getFullYear() : ""}</div>`;
   }
   const todayLine = C.today >= r0 && C.today <= r1 ? `<div class="g-today" style="left:${x(C.today)}px"></div>` : "";
   const sel = K.sel;
@@ -303,7 +303,7 @@ export function viewPlus(S, C) {
     ${item("sub-exports", "Exports et sauvegarde", "CSV, ZIP, sauvegarde JSON, restauration")}
     ${item("sub-settings", "Réglages", "Objectif de repos " + C.settings.restTarget + " j · catégories UGB · thème")}
     ${item("sub-mapcfg", "Parcelles et paddocks", GEO.parcels.length + " parcelles · " + GEO.pads.length + " paddocks · " + fmtNum(GEO.pads.reduce((s, p) => s + p.area, 0), 1) + " ha")}
-  </div><p class="small muted" style="margin:14px 4px">Suivi pâturage v9 · ${C.D.moves.length} déplacements · ${C.D.foins.length} foin</p></div>`;
+  </div><p class="small muted" style="margin:14px 4px">Suivi pâturage v9.0.1 · ${C.D.moves.length} déplacements · ${C.D.foins.length} foin</p></div>`;
 }
 const subHead = (title, back = "plus-back") => `<div class="row" style="flex-wrap:nowrap;gap:4px;margin:-8px 0 8px -10px"><button type="button" class="iconbtn" data-a="${back}" aria-label="Retour">${icon("back", 24)}</button><h1 style="font-size:24px">${title}</h1></div>`;
 
@@ -394,9 +394,9 @@ function viewExports(S, C) {
     <button type="button" class="li" data-a="ex-csv" data-k="compositions"><span class="grow"><span class="t1">Compositions (CSV)</span><span class="t2">Effectifs par catégorie et UGB</span></span></button>
     <button type="button" class="li" data-a="ex-csv" data-k="foin"><span class="grow"><span class="t1">Foin (CSV)</span><span class="t2">Round-ballers apportés</span></span></button>
     <button type="button" class="li" data-a="ex-json"><span class="grow"><span class="t1">Sauvegarde complète (JSON)</span><span class="t2">Pour transférer ou restaurer</span></span></button></div>
-    <h2>Restaurer</h2><div class="card"><div class="small muted">Fichier de sauvegarde v9 (JSON), ou sauvegarde de l’ancienne version v8 (convertie automatiquement). Remplace les données de cet appareil.</div>
+    <h2>Restaurer</h2><div class="card"><div class="small muted">Fichier de sauvegarde v9 (JSON), ou sauvegarde de l’ancienne version v8 (convertie automatiquement) : remplace les données de cet appareil. Un fichier de réparation, lui, ajoute des éléments sans rien remplacer.</div>
     <label class="btn block" style="margin-top:10px">Choisir un fichier…<input type="file" accept=".json,application/json" class="sr" data-in="restore-file"></label>
-    ${C.v8Available ? `<button type="button" class="btn block" style="margin-top:8px" data-a="import-v8-local">Importer les données v8 de ce navigateur</button>` : ""}
+    ${C.v8Available ? `<button type="button" class="btn block" style="margin-top:8px" data-a="import-v8-local">${C.D.moves.length ? "Réimporter" : "Importer"} les données v8 de ce navigateur</button>` : ""}
     ${S.restoreMsg ? `<div class="notice" style="margin-top:10px">${esc(S.restoreMsg)}</div>` : ""}</div></div>`;
 }
 

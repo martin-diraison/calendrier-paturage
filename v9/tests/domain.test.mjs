@@ -65,22 +65,29 @@ test("composition en vigueur et UGB", () => {
   const comps = [{ id: "1", lotId: "L", eff: "2026-01-01", items: { a: 2 } }, { id: "2", lotId: "L", eff: "2026-06-01", items: { a: 3 } }];
   assert.equal(compForDate(comps, "L", "2026-05-31").id, "1");
   assert.equal(compForDate(comps, "L", "2026-06-01").id, "2");
+  assert.equal(compForDate(comps, "L", "2025-12-31").id, "1"); // avant la 1re : la 1re
   assert.equal(ugbOf({ a: 3 }, [{ id: "a", ugb: 0.7 }]).toFixed(2), "2.10");
 });
 
-test("conversion v8 : transfert auto, sortie seule, journée unique, sortie orpheline", () => {
+test("conversion v8 : sortie = dernier jour au paddock ; transfert auto ; journée unique ; orpheline", () => {
   const ev = (id, dt, type, p) => ({ id, lotId: "L", dt, type, paddockId: p });
   const r = convertV8Movements([
     ev("i1", "2026-05-01", "IN", "P1"),
     ev("o1", "2026-05-10", "OUT", "P1"), ev("i2", "2026-05-10", "IN", "P2"), // transfert (sortie auto)
-    ev("o2", "2026-05-20", "OUT", "P2"),                                      // sortie seule
-    ev("i3", "2026-06-01", "IN", "P3"), ev("o3", "2026-06-01", "OUT", "P3"), // journée unique
-    ev("o4", "2026-06-15", "OUT", "P9")                                       // orpheline
+    ev("o2", "2026-05-20", "OUT", "P2"), ev("i3", "2026-05-21", "IN", "P3"), // sortie le 20, entrée le 21 = continu
+    ev("o3", "2026-06-01", "OUT", "P3"),                                      // vraie sortie : hors-paddock dès le 2
+    ev("i4", "2026-06-10", "IN", "P4"), ev("o4", "2026-06-10", "OUT", "P4"), // journée unique
+    ev("o5", "2026-06-15", "OUT", "P9")                                       // orpheline
   ]);
   assert.deepEqual(r.moves.map((m) => [m.id, m.date, m.to]), [
-    ["i1", "2026-05-01", "P1"], ["i2", "2026-05-10", "P2"], ["o2", "2026-05-20", OUT], ["i3", "2026-06-01", "P3"], ["o3", "2026-06-01", OUT]
+    ["i1", "2026-05-01", "P1"], ["i2", "2026-05-10", "P2"], ["i3", "2026-05-21", "P3"], ["o3", "2026-06-02", OUT],
+    ["i4", "2026-06-10", "P4"], ["o4", "2026-06-11", OUT]
   ]);
-  assert.deepEqual(r.orphanOuts, ["o4"]);
+  assert.deepEqual(r.orphanOuts, ["o5"]);
+  assert.deepEqual(r.absorbedOuts.sort(), ["o1", "o2"]);
+  const tl = lotTimeline(r.moves.map((m) => Object.assign(m, { deleted: false })), "L");
+  assert.equal(tl.outs.length, 2);
+  assert.deepEqual([tl.outs[0].start, tl.outs[0].end], ["2026-06-02", "2026-06-10"]);
 });
 
 test("conversion v8 : alias d'identifiant de paddock", () => {

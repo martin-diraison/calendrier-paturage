@@ -69,12 +69,16 @@ export function restClass(st, target) {
 
 /* Composition en vigueur à une date (date d'effet ≤ date) et UGB. */
 export function compForDate(comps, lotId, date) {
-  let best = null;
+  let best = null, first = null;
   for (const c of comps) {
-    if (c.deleted || c.lotId !== lotId || c.eff > date) continue;
+    if (c.deleted || c.lotId !== lotId) continue;
+    if (!first || c.eff < first.eff) first = c;
+    if (c.eff > date) continue;
     if (!best || c.eff > best.eff) best = c;
   }
-  return best;
+  /* avant la première composition connue : on retient cette première composition
+     (sinon le troupeau compterait pour 0 UGB et la pression serait nulle) */
+  return best || first;
 }
 export function ugbOf(items, cats) {
   let s = 0;
@@ -120,9 +124,12 @@ export function pressureByPaddock(D, pads, ref) {
 }
 
 /* Conversion des données v8 (événements Entrée/Sortie) en déplacements v9.
-   Par troupeau et par jour : d'abord les entrées (vers un autre paddock), puis les sorties
-   du paddock courant (→ hors-paddock). Une sortie du même jour qu'une entrée ailleurs est un
-   transfert (absorbée). Les sorties sans entrée correspondante sont signalées. */
+   En v8, la date de SORTIE est le DERNIER JOUR passé dans le paddock (« sortie le 4, entrée
+   le 5 » = rotation continue). En v9, un déplacement daté du jour J place le troupeau au
+   nouveau lieu dès J. Une sortie v8 du jour J devient donc un passage hors-paddock à J+1,
+   absorbé si une entrée a lieu ce jour-là (transfert sans interruption).
+   Par jour : d'abord les entrées, puis les sorties du paddock courant. Une sortie du même jour
+   qu'une entrée ailleurs est un transfert (sortie auto v8). Sorties sans entrée : signalées. */
 export function convertV8Movements(v8moves, aliases = {}) {
   const fix = (p) => aliases[p] || p;
   const byLot = {};
@@ -130,15 +137,21 @@ export function convertV8Movements(v8moves, aliases = {}) {
     if (!m || !m.lotId || !m.dt || !m.paddockId || !(m.type === "IN" || m.type === "OUT")) continue;
     (byLot[m.lotId] = byLot[m.lotId] || []).push(m);
   }
-  const moves = [], orphanOuts = [], redundantIns = [];
+  const moves = [], orphanOuts = [], redundantIns = [], absorbedOuts = [];
   let seq = 1;
   for (const lotId in byLot) {
     const evs = byLot[lotId];
     const days = [...new Set(evs.map((e) => e.dt))].sort();
-    let cur = null;
+    let cur = null, pending = null; // pending = sortie v8 en attente : { id, date (J+1), pad }
+    const flush = () => { if (pending) { moves.push({ id: pending.id, lotId, date: pending.date, to: OUT, createdAt: seq++ }); cur = OUT; pending = null; } };
     for (const day of days) {
       const ins = evs.filter((e) => e.dt === day && e.type === "IN");
       const outsD = evs.filter((e) => e.dt === day && e.type === "OUT");
+      if (pending && day > pending.date) flush();
+      if (pending && day === pending.date) {
+        if (ins.length) { absorbedOuts.push(pending.id); pending = null; } // entrée le lendemain : transfert continu
+        else flush();
+      }
       for (const e of ins) {
         const p = fix(e.paddockId);
         if (p === cur) { redundantIns.push(e.id); continue; }
@@ -147,14 +160,16 @@ export function convertV8Movements(v8moves, aliases = {}) {
       }
       for (const e of outsD) {
         const p = fix(e.paddockId);
-        if (cur && p === cur) {
-          moves.push({ id: e.id, lotId, date: day, to: OUT, createdAt: seq++ });
-          cur = OUT;
+        if (cur && p === cur && !pending) {
+          pending = { id: e.id, date: addDays(day, 1), pad: p };
         } else if (!ins.length || !ins.some((i) => fix(i.paddockId) !== p)) {
           orphanOuts.push(e.id);
+        } else {
+          absorbedOuts.push(e.id);
         }
       }
     }
+    flush();
   }
-  return { moves, orphanOuts, redundantIns };
+  return { moves, orphanOuts, redundantIns, absorbedOuts };
 }
