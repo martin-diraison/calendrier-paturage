@@ -29,7 +29,7 @@ function emit(info) { listeners.forEach((fn) => { try { fn(info); } catch (e) { 
 
 export function live(entity) { return DATA[entity].filter((r) => !r.deleted); }
 export function get(entity, id) { return DATA[entity].find((r) => r.id === id) || null; }
-export function liveData() { const o = {}; for (const e of ENTITIES) o[e] = live(e); return o; }
+export function liveData() { const o = {}; for (const e of ENTITIES) o[e] = live(e); o.catsAll = DATA.cats.slice(); return o; }
 
 export async function loadAll() {
   for (const e of ENTITIES) DATA[e] = [];
@@ -56,7 +56,7 @@ export async function save(entity, rec, opts = {}) {
   t.objectStore("rec").put({ key, entity, rec });
   t.objectStore("outbox").put({ key, entity, rec });
   await done(t);
-  if (!opts.silent) emit({ local: true, entity });
+  emit({ local: true, entity, silent: !!opts.silent });
 }
 export async function saveMany(list) {
   const t = db.transaction(["rec", "outbox"], "readwrite");

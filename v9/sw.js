@@ -1,8 +1,10 @@
 /* Service worker : l'appli s'ouvre sans réseau.
-   Avec réseau : les fichiers de l'appli sont pris en ligne (version la plus récente) et la copie
-   locale est mise à jour ; si le réseau ne répond pas en 3 s ou est coupé : copie locale.
+   - Fichiers de l'appli (liste SHELL) : servis depuis la copie locale de CETTE version, tous ensemble.
+     Une nouvelle version (sw.js modifié) les retélécharge tous d'un coup à l'installation, puis la page
+     se recharge : jamais de mélange d'anciens et de nouveaux fichiers, même avec un réseau faible.
+   - Page d'accueil : réseau d'abord (3 s), copie locale sinon.
    Les échanges avec le script Google ne passent jamais par ici. */
-const CACHE = "paturage-v9.1.0";
+const CACHE = "paturage-v9.1.1";
 const SHELL = [
   "./", "index.html", "manifest.webmanifest", "css/app.css", "data/carte.json", "Fond.png", "icon-192.png", "icon-512.png",
   "js/app.js", "js/util.js", "js/geo.js", "js/domain.js", "js/migrate.js", "js/store.js", "js/sync.js", "js/exports.js",
@@ -24,6 +26,8 @@ function fromNetwork(req, ms) {
   });
 }
 
+const SHELL_URLS = new Set(SHELL.filter((u) => u !== "./").map((u) => new URL(u, self.registration.scope).href));
+
 self.addEventListener("fetch", (e) => {
   const req = e.request;
   if (req.method !== "GET") return;
@@ -33,11 +37,15 @@ self.addEventListener("fetch", (e) => {
   if (url.origin !== location.origin && !isFont) return;
   e.respondWith((async () => {
     const cache = await caches.open(CACHE);
-    const hit = await cache.match(req, { ignoreSearch: url.origin === location.origin });
-    if (isFont && hit) return hit; // polices : jamais modifiées
+    const same = url.origin === location.origin;
+    const hit = await cache.match(req, { ignoreSearch: same });
+    const shellFile = same && req.mode !== "navigate" && SHELL_URLS.has(url.origin + url.pathname);
+    if (hit && (isFont || shellFile)) return hit; // fichiers de cette version : copie locale
     try {
-      const res = await fromNetwork(req, hit ? 3000 : 15000);
-      if (res && (res.ok || res.type === "opaque")) cache.put(req, res.clone());
+      /* une requête de navigation ne peut pas être refaite telle quelle avec des options : on repart de son adresse */
+      const netReq = req.mode === "navigate" ? new Request(req.url, { credentials: "same-origin" }) : req;
+      const res = await fromNetwork(netReq, hit ? 3000 : 15000);
+      if (res && (res.ok || res.type === "opaque") && !(req.mode === "navigate" && url.search)) cache.put(req, res.clone());
       return res;
     } catch (_) {
       if (hit) return hit;

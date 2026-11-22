@@ -3,14 +3,14 @@ import { todayISO, addDays, uid, fmtShort, clone, toNum, normText } from "./util
 import { GEO, buildGeo, padLabel, parcelsFromGeoJSON, paddocksFromGeoJSON, parseWorldFile } from "./geo.js";
 import { OUT, lotLocation, paddockStatus, pressureByPaddock, compForDate } from "./domain.js";
 import * as store from "./store.js";
-import { SYNC, initSync, scheduleSync, syncNow, setSyncConfig, testSync, onSync } from "./sync.js";
+import { SYNC, initSync, scheduleSync, syncNow, setSyncConfig, testSync, onSync, configured } from "./sync.js";
 import { fromV8, isV8, readV8FromThisBrowser, LOT_COLORS } from "./migrate.js";
 import * as X from "./exports.js";
 import { viewHome, viewMove, viewCarte, viewCal, viewPlus, viewNav, viewSheet, viewToast, moveMapH, carteMapH } from "./views.js";
 import { parcelView, padScreenSize, MIN_TAP_PX } from "./mapsvg.js";
 import { attachMapGestures } from "./mapgesture.js";
 
-const VERSION = "9.1.0";
+const VERSION = "9.1.1";
 const app = document.getElementById("app");
 let BASE_CARTE = null;
 const SET = { restTarget: 45, pressureMax: 2, longStay: 10, theme: "light" };
@@ -153,6 +153,7 @@ const A = {
   "mc-confirm": async () => {
     const sh = S.sheet; if (!sh || sh.type !== "moveConfirm") return;
     const lot = lotById(sh.lotId);
+    if (!lot || lot.deleted) { S.sheet = null; toast("Ce troupeau n’existe plus."); return; }
     const cur = lotLocation(C.D.moves, sh.lotId, sh.date);
     if (cur && cur.loc === sh.to) { toast("Le troupeau est déjà à cet endroit à cette date."); return; }
     const rec = { id: uid("mv"), lotId: sh.lotId, date: sh.date, to: sh.to, createdAt: Date.now() };
@@ -252,7 +253,20 @@ const A = {
   },
   "lot-open": (d) => { openLot(d.lot, C.today); go("plus", "lot"); },
   "lot-color": async (d) => { const l = lotById(d.lot); l.color = d.c; await store.save("lots", l); },
-  "lot-archive": async (d) => { const l = lotById(d.lot); l.archived = !l.archived; await store.save("lots", l); toast(l.archived ? "Troupeau archivé" : "Troupeau réactivé"); },
+  "lot-archive": async (d) => {
+    const l = lotById(d.lot); if (!l) return;
+    if (l.archived) { l.archived = false; await store.save("lots", l); toast("Troupeau réactivé"); return; }
+    const loc = lotLocation(C.D.moves, l.id, C.today);
+    if (!loc || loc.loc === OUT) { l.archived = true; await store.save("lots", l); toast("Troupeau archivé", async () => { l.archived = false; await store.save("lots", l); toast("Archivage annulé"); }); return; }
+    /* troupeau encore dans un paddock : on le sort aujourd'hui, sinon le paddock resterait « occupé » pour toujours */
+    S.sheet = { type: "confirm", title: "Archiver « " + l.name + " » ?", text: "Ce troupeau est encore au paddock " + padLabel(loc.loc) + ". Il sera passé hors-paddock aujourd’hui, pour que le paddock soit libéré, puis archivé.", ok: "Sortir et archiver", run: async () => {
+      const out = { id: uid("mv"), lotId: l.id, date: C.today, to: OUT, createdAt: Date.now() };
+      l.archived = true;
+      await store.saveMany([{ entity: "moves", rec: out }, { entity: "lots", rec: l }]);
+      toast("Troupeau sorti et archivé", async () => { out.deleted = true; l.archived = false; await store.saveMany([{ entity: "moves", rec: out }, { entity: "lots", rec: l }]); toast("Archivage annulé"); }, 8000);
+    } };
+    render();
+  },
   "lot-delete": (d) => {
     const l = lotById(d.lot);
     const n = C.D.moves.filter((m) => m.lotId === l.id).length;
@@ -288,7 +302,7 @@ const A = {
   "cat-add": async () => {
     const name = S.newCat.name.trim(); if (!name) return;
     let base = normText(name).replace(/[^a-z0-9]+/g, "_").replace(/^_|_$/g, "") || "cat", id = base, k = 2;
-    while (store.get("cats", id) && !store.get("cats", id).deleted) id = base + "_" + k++;
+    while (store.get("cats", id)) id = base + "_" + k++; // jamais l'identifiant d'une catégorie supprimée (ses anciens effectifs reviendraient)
     await store.save("cats", { id, name, ugb: toNum(S.newCat.ugb) });
     S.newCat = { name: "", ugb: "" }; render();
   },
@@ -322,8 +336,7 @@ const A = {
     X.downloadText(d.k + (d.k === "compositions" ? "" : "_" + y) + ".csv", f(), "text/csv;charset=utf-8");
   },
   "ex-json": async () => {
-    const stamp = new Date().toISOString().slice(0, 16).replace(/[-:]/g, "").replace("T", "_");
-    X.downloadText("sauvegarde_paturage_" + stamp + ".json", JSON.stringify(X.backupObject(SET), null, 1), "application/json");
+    X.downloadText("sauvegarde_paturage_" + X.localStamp() + ".json", JSON.stringify(X.backupObject(SET), null, 1), "application/json");
     await markBackup();
   },
   "import-v8-local": () => {
@@ -333,14 +346,18 @@ const A = {
 
   /* --- Réglages --- */
   "set-theme": async (d) => { SET.theme = d.v; applyTheme(); await saveSettings(); render(); },
-  "reset-all": () => {
-    S.sheet = { type: "confirm", title: "Effacer les données de cet appareil ?", text: "Troupeaux, déplacements, compositions et foin seront effacés de cet appareil. Le tableur n’est pas modifié : vous pourrez tout récupérer par la synchronisation.", ok: "Tout effacer", danger: true, run: async () => {
+  "reset-all": async () => {
+    const warn = await pendingWarning();
+    S.sheet = { type: "confirm", title: "Effacer les données de cet appareil ?", text: "Troupeaux, déplacements, compositions et foin seront effacés de cet appareil. Le tableur n’est pas modifié : les données déjà envoyées se récupèrent par la synchronisation." + warn, ok: "Tout effacer", danger: true, run: async () => {
+      if (!(await flushBeforeReplace())) return;
       await store.wipeAll(); await store.setMeta("sync.cursor", 0); go("home"); toast("Données de l’appareil effacées");
     } };
     render();
   },
-  "load-demo": () => {
-    S.sheet = { type: "confirm", title: "Charger la démo ?", text: "Quatre troupeaux d’exemple et une saison de déplacements remplaceront les données de cet appareil." + (SYNC.url ? " Attention : la synchronisation est réglée, la démo serait envoyée au tableur." : ""), ok: "Charger la démo", danger: true, run: async () => {
+  "load-demo": async () => {
+    if (configured()) { S.sheet = { type: "confirm", title: "Démo indisponible", text: "La synchronisation est réglée sur cet appareil : la démo se mélangerait aux vraies données du tableur. Utilisez la démo sur un appareil sans synchronisation.", ok: "Compris" }; render(); return; }
+    const warn = await pendingWarning();
+    S.sheet = { type: "confirm", title: "Charger la démo ?", text: "Quatre troupeaux d’exemple et une saison de déplacements remplaceront les données de cet appareil." + warn, ok: "Charger la démo", danger: true, run: async () => {
       const { demoRecords } = await import("./demo.js");
       await store.replaceAll(demoRecords(), { queue: false }); go("home"); toast("Démo chargée");
     } };
@@ -442,6 +459,21 @@ function openMoveConfirm(lotId, to, from) {
 const gestures = attachMapGestures(app, {
   setView: (ctx, vb) => { if (ctx === "mv" && S.move) S.move.vb = vb; else if (ctx === "ct") S.carte.vb = vb; render(); }
 });
+/* Avertissement : saisies pas encore envoyées au tableur, perdues si on remplace les données */
+async function pendingWarning() {
+  const n = await store.outboxCount();
+  if (!n) return "";
+  return configured() ? " " + n + " modification(s) pas encore envoyée(s) : un envoi sera tenté avant ; si le réseau manque, l’opération sera annulée." : " Attention : " + n + " modification(s) n’ont jamais été envoyées au tableur (synchronisation non réglée) et seront perdues.";
+}
+/* Avant d'effacer ou de remplacer : envoyer ce qui attend. Renvoie false si des envois restent bloqués. */
+async function flushBeforeReplace() {
+  if (!configured() || !(await store.outboxCount())) return true;
+  toast("Envoi des dernières saisies…");
+  await syncNow();
+  const left = await store.outboxCount();
+  if (left) { toast(left + " modification(s) n’ont pas pu partir (réseau ?) : opération annulée, rien n’a été effacé.", null, 9000); return false; }
+  return true;
+}
 function openSync() { S.syncForm = { url: SYNC.url, secret: SYNC.secret }; S.syncMsg = ""; go("plus", "sync"); }
 async function markBackup() { lastBackup = Date.now(); await store.setMeta("lastBackup", lastBackup); }
 
@@ -477,6 +509,12 @@ function askImportV8(v8, label) {
   const conv = fromV8(v8, GEO.aliases);
   const r = conv.report;
   const merging = C.D.moves.length > 0 || C.D.lots.length > 0;
+  /* appareil vide mais synchronisé : ses données viennent du tableur. Un import v8 ici (souvent ancien)
+     passerait pour la version la plus récente et écraserait les corrections faites depuis. */
+  if (!merging && configured()) {
+    S.sheet = { type: "confirm", title: "Import v8 inutile ici", text: "La synchronisation est réglée : les données arrivent du tableur (Plus → Synchronisation → « Tout récupérer depuis le tableur »). Importer les données v8 de cet appareil risquerait d’écraser des corrections plus récentes.", ok: "Compris" };
+    render(); return;
+  }
   const v8Last = (v8.movements || []).reduce((m, x) => (x && x.dt > m ? x.dt : m), "");
   const v9Last = C.D.moves.reduce((m, x) => (x.date > m ? x.date : m), "");
   const stale = merging && v8Last && v9Last && v8Last < v9Last;
@@ -511,11 +549,14 @@ async function restoreFile(file) {
   }
   if (!obj || obj.format !== "paturage-v9" || !obj.records) { S.restoreMsg = "Ce fichier n’est pas une sauvegarde de l’appli."; render(); return; }
   const n = (obj.records.moves || []).filter((m) => !m.deleted).length;
-  S.sheet = { type: "confirm", title: "Restaurer « " + file.name + " » ?", text: "Sauvegarde du " + String(obj.exportedAt || "").slice(0, 10) + " : " + n + " déplacement(s). Les données de cet appareil seront remplacées.", ok: "Restaurer", danger: true, run: async () => {
+  const warn = await pendingWarning();
+  S.sheet = { type: "confirm", title: "Restaurer « " + file.name + " » ?", text: "Sauvegarde du " + String(obj.exportedAt || "").slice(0, 10) + " : " + n + " déplacement(s). Les données de cet appareil seront remplacées et la sauvegarde sera envoyée au tableur." + (configured() ? " Ce qui a été saisi sur d’autres appareils après la sauvegarde sera ensuite récupéré par la synchronisation." : "") + warn, ok: "Restaurer", danger: true, run: async () => {
+    if (!(await flushBeforeReplace())) return;
     const recs = obj.records;
     const now = Date.now();
     for (const e of store.ENTITIES) for (const r of recs[e] || []) r.updatedAt = now; // la restauration devient la version la plus récente
     await store.replaceAll(recs);
+    await store.setMeta("sync.cursor", 0); // relire tout le tableur : récupérer ce qui n'est pas dans la sauvegarde
     if (obj.settings) { Object.assign(SET, obj.settings); applyTheme(); await saveSettings(); }
     S.restoreMsg = "Restauration terminée."; go("home"); toast("Sauvegarde restaurée");
   } };
@@ -578,7 +619,7 @@ async function init() {
   await store.loadAll();
   lastBackup = await store.getMeta("lastBackup", 0);
   v8Available = !!readV8FromThisBrowser();
-  store.onChange((info) => { if (info.local) scheduleSync(); render(); });
+  store.onChange((info) => { if (info.local) scheduleSync({ quiet: info.silent }); if (!info.silent) render(); });
   onSync(() => { if (C) render(); });
   await initSync();
   if (navigator.storage && navigator.storage.persist) {

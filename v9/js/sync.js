@@ -18,11 +18,18 @@ export async function initSync() {
   SYNC.lastOk = await getMeta("sync.lastOk", 0);
   await refreshCount();
   window.addEventListener("online", () => syncNow());
-  document.addEventListener("visibilitychange", () => { if (document.visibilityState === "visible") syncNow(); });
+  /* au retour dans l'appli : envoi + réception ; en quittant l'appli : on tente d'envoyer ce qui attend */
+  document.addEventListener("visibilitychange", async () => {
+    if (document.visibilityState === "visible") syncNow();
+    else if (configured() && (await outboxCount())) { clearTimeout(timer); syncNow(); }
+  });
   setInterval(() => { if (document.visibilityState === "visible") syncNow(); }, 5 * 60 * 1000);
 }
 export async function setSyncConfig(url, secret) {
-  SYNC.url = String(url || "").trim(); SYNC.secret = String(secret || "").trim();
+  const newUrl = String(url || "").trim();
+  /* autre script (donc peut-être autre tableur) : on relira tout depuis le début */
+  if (newUrl !== SYNC.url) await setMeta("sync.cursor", 0);
+  SYNC.url = newUrl; SYNC.secret = String(secret || "").trim();
   await setMeta("sync.url", SYNC.url); await setMeta("sync.secret", SYNC.secret);
   await refreshCount();
 }
@@ -36,9 +43,10 @@ async function refreshCount() {
   emit();
 }
 
-let timer = null;
-export function scheduleSync() {
-  refreshCount();
+let timer = null, again = false;
+/* quiet : ne met pas à jour le compteur tout de suite (évite un réaffichage pendant une saisie) */
+export function scheduleSync({ quiet = false } = {}) {
+  if (!quiet) refreshCount();
   clearTimeout(timer);
   timer = setTimeout(() => syncNow(), 1200);
 }
@@ -60,7 +68,7 @@ export function viewOf(entity, r) {
   const lotName = (id) => { const l = DATA.lots.find((x) => x.id === id); return l ? l.name : id; };
   if (entity === "lots") return { nom: r.name, couleur: r.color, archive: r.archived ? "oui" : "" };
   if (entity === "cats") return { nom: r.name, ugb: r.ugb };
-  if (entity === "comps") return { troupeau: lotName(r.lotId), date_effet: r.eff, ugb_total: Math.round(ugbOf(r.items, DATA.cats.filter((c) => !c.deleted)) * 100) / 100, detail: JSON.stringify(r.items || {}) };
+  if (entity === "comps") return { troupeau: lotName(r.lotId), date_effet: r.eff, ugb_total: Math.round(ugbOf(r.items, DATA.cats) * 100) / 100, detail: JSON.stringify(r.items || {}) };
   if (entity === "moves") {
     const p = GEO.byId[r.to];
     return { troupeau: lotName(r.lotId), date: r.date, destination: padLabel(r.to), parcelle: p ? parcelLabel(p.parcel) : "", surface_ha: p ? Math.round(p.area * 10000) / 10000 : "" };
@@ -72,7 +80,8 @@ export function viewOf(entity, r) {
 export async function syncNow({ full = false } = {}) {
   if (!configured()) { await refreshCount(); return { ok: false, reason: "off" }; }
   if (!navigator.onLine) { SYNC.state = "offline"; emit(); return { ok: false, reason: "offline" }; }
-  if (SYNC.busy) return { ok: false, reason: "busy" };
+  /* synchro déjà en cours : on en relancera une à la fin, pour envoyer ce qui vient d'être saisi */
+  if (SYNC.busy) { again = true; return { ok: false, reason: "busy" }; }
   SYNC.busy = true; emit();
   try {
     /* 1. envoi, par paquets */
@@ -103,6 +112,7 @@ export async function syncNow({ full = false } = {}) {
   } finally {
     SYNC.busy = false;
     await refreshCount();
+    if (again) { again = false; if (SYNC.pending && SYNC.state === "pending") { clearTimeout(timer); timer = setTimeout(() => syncNow(), 300); } }
   }
 }
 

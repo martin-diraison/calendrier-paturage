@@ -108,3 +108,15 @@ test("import v8 complet", () => {
   assert.equal(records.foins[0].type, "enrubanne");
   assert.equal(settings.restTarget, 50);
 });
+
+test("9.1.1 : une catégorie supprimée compte encore dans les compositions passées", () => {
+  const cats = [{ id: "a", ugb: 1 }, { id: "b", ugb: 0.5, deleted: true }];
+  assert.equal(ugbOf({ a: 2, b: 2 }, cats), 3);
+});
+
+test("9.1.1 : un passage de 0 jour ne rend pas le paddock « pâturé »", () => {
+  const moves = [mv("a", "L", "2026-11-10", "P1", 1), mv("b", "L", "2026-11-16", "P2", 2), mv("c", "L", "2026-11-16", "P1", 3)];
+  const st = paddockStatus({ moves }, ["P1", "P2"], "2026-11-22");
+  assert.equal(st.P2.status, "never");
+  assert.equal(st.P1.status, "occ");
+});

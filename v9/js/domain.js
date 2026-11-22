@@ -44,6 +44,7 @@ export function paddockStatus(D, padIds, ref) {
   for (const lotId of lotIds) {
     const tl = lotTimeline(D.moves, lotId, ref);
     for (const st of tl.stays) {
+      if (st.end !== null && st.end === st.start) continue; // passage de 0 jour (deux déplacements le même jour) : pas pâturé
       const r = res[st.loc] || (res[st.loc] = { occupants: [], lastEnd: null, rest: null, status: "never" });
       if (st.end === null) r.occupants.push(lotId);
       else if (!r.lastEnd || st.end > r.lastEnd) r.lastEnd = st.end;
@@ -82,12 +83,14 @@ export function compForDate(comps, lotId, date) {
 }
 export function ugbOf(items, cats) {
   let s = 0;
-  for (const c of cats) { if (!c.deleted) s += (Number((items || {})[c.id]) || 0) * (Number(c.ugb) || 0); }
+  /* les catégories supprimées comptent encore pour les compositions qui les utilisent :
+     supprimer une catégorie ne réécrit pas l'historique */
+  for (const c of cats) s += (Number((items || {})[c.id]) || 0) * (Number(c.ugb) || 0);
   return s;
 }
 export function lotUGB(D, lotId, date) {
   const c = compForDate(D.comps, lotId, date);
-  return c ? ugbOf(c.items, D.cats) : 0;
+  return c ? ugbOf(c.items, D.catsAll || D.cats) : 0;
 }
 
 /* Jours de pâturage (un par jour et par troupeau) entre from et to inclus, bornés à `today`.

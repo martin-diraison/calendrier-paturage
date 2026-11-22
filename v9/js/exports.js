@@ -28,7 +28,7 @@ export function csvSejours(year) {
   rows.sort((a, b) => (a.entree < b.entree ? -1 : 1));
   return toCSV(["troupeau", "lieu", "parcelle", "surface_ha", "entree", "sortie", "en_cours", "jours", "ugb_a_l_entree"], rows);
 }
-function liveD() { return { moves: live("moves"), comps: live("comps"), cats: live("cats") }; }
+function liveD() { return { moves: live("moves"), comps: live("comps"), cats: live("cats"), catsAll: DATA.cats }; }
 
 export function csvJournalier(year) {
   const D = liveD(), rows = [], cache = {};
@@ -46,13 +46,14 @@ export function csvDeplacements(year) {
   return toCSV(["id", "date", "troupeau", "destination", "parcelle", "surface_ha"], rows);
 }
 export function csvCompositions() {
-  const cats = live("cats");
-  const rows = live("comps").sort((a, b) => (a.eff < b.eff ? -1 : 1)).map((c) => {
+  const comps = live("comps");
+  const cats = DATA.cats.filter((k) => !k.deleted || comps.some((c) => (c.items || {})[k.id]));
+  const rows = comps.sort((a, b) => (a.eff < b.eff ? -1 : 1)).map((c) => {
     const r = { troupeau: lotName(c.lotId), date_effet: c.eff, ugb_total: fmtNum(ugbOf(c.items, cats), 2) };
-    for (const k of cats) r[k.name] = (c.items || {})[k.id] || "";
+    for (const k of cats) r[k.name + (k.deleted ? " (supprimée)" : "")] = (c.items || {})[k.id] || "";
     return r;
   });
-  return toCSV(["troupeau", "date_effet", "ugb_total"].concat(cats.map((k) => k.name)), rows);
+  return toCSV(["troupeau", "date_effet", "ugb_total"].concat(cats.map((k) => k.name + (k.deleted ? " (supprimée)" : ""))), rows);
 }
 export function csvFoin(year) {
   const rows = live("foins").filter((f) => !year || f.date.slice(0, 4) === String(year)).sort((a, b) => (a.date < b.date ? -1 : 1))
@@ -88,7 +89,7 @@ export function makeZip(files) {
 }
 
 export function allExportsZip(year, settings) {
-  const stamp = new Date().toISOString().slice(0, 16).replace(/[-:]/g, "").replace("T", "_");
+  const stamp = localStamp();
   const name = "paturage_" + year + "_" + stamp + ".zip";
   const blob = makeZip([
     { name: "sejours_" + year + ".csv", content: csvSejours(year) },
@@ -101,6 +102,11 @@ export function allExportsZip(year, settings) {
   return { name, blob };
 }
 
+/* horodatage local (pas UTC) pour les noms de fichiers : 20261122_1430 */
+export function localStamp() {
+  const d = new Date(), p = (n) => String(n).padStart(2, "0");
+  return d.getFullYear() + p(d.getMonth() + 1) + p(d.getDate()) + "_" + p(d.getHours()) + p(d.getMinutes());
+}
 export function downloadBlob(name, blob) {
   const a = document.createElement("a");
   a.href = URL.createObjectURL(blob); a.download = name;

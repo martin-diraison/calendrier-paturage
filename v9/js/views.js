@@ -36,7 +36,7 @@ export function viewHome(S, C) {
   let h = `<div class="screen"><div class="spread"><div><h1>Troupeaux</h1><div class="sub">${esc(fmtLong(C.today))}</div></div>
     <button type="button" class="pill ${C.sync.busy ? "pending" : C.sync.state}" data-a="go-sync" aria-label="État de la synchronisation"><span class="led"></span>${C.sync.busy ? "Synchro…" : esc(syncTxt)}</button></div>`;
 
-  if (C.v8Available && !C.D.moves.length) {
+  if (C.v8Available && !C.D.moves.length && C.sync.state === "off") {
     h += `<div class="card" style="margin-top:16px"><b>Données de l’ancienne version trouvées sur cet appareil.</b><div class="small muted" style="margin-top:4px">Troupeaux, compositions, mouvements et foin seront convertis. Vos données v8 restent intactes.</div>
       <button type="button" class="btn primary block" style="margin-top:10px" data-a="import-v8-local">Importer les données v8</button></div>`;
   }
@@ -265,7 +265,8 @@ export function viewCal(S, C) {
   const sel = K.sel;
   const bar = (it, color, kind) => {
     const on = sel && sel.kind === kind && sel.id === it.s.startId;
-    const w = Math.max(6, (daysBetween(it.c.a, it.c.b) + (it.s.end ? 0 : 1)) * dw);
+    /* fin exclusive, sauf séjour en cours (aujourd'hui inclus) ou coupé au 31 décembre (inclus) */
+    const w = Math.max(6, (daysBetween(it.c.a, it.c.b) + (!it.s.end || it.s.end > y1 ? 1 : 0)) * dw);
     const bg = it.s.end ? color : `repeating-linear-gradient(45deg,${color},${color} 4px,${color}99 4px,${color}99 8px)`;
     return `<button type="button" class="g-bar${on ? " sel" : ""}" style="left:${x(it.c.a)}px;width:${w.toFixed(1)}px;background:${bg}" data-a="cal-sel" data-kind="${kind}" data-id="${esc(it.s.startId)}" aria-label="${esc(padLabel(it.s.loc) + " du " + fmtShort(it.s.start) + (it.s.end ? " au " + fmtShort(it.s.end) : " à aujourd’hui"))}"></button>`;
   };
@@ -307,7 +308,7 @@ export function viewPlus(S, C) {
   if (S.sub === "settings") return viewSettings(S, C);
   if (S.sub === "mapcfg") return viewMapCfg(S, C);
   const totalUGB = C.D.lots.filter((l) => !l.archived).reduce((s, l) => s + lotUGB(C.D, l.id, C.today), 0);
-  const syncTxt = C.sync.state === "off" ? "Non réglée" : C.sync.state === "ok" ? "À jour · " + C.sync.pending + " en attente" : C.sync.state === "error" ? "Erreur : " + C.sync.lastErr : C.sync.pending + " en attente";
+  const syncTxt = C.sync.state === "off" ? "Non réglée" : C.sync.state === "ok" ? "À jour" : C.sync.state === "error" ? "Erreur : " + C.sync.lastErr : C.sync.pending + " en attente";
   const item = (a, t1, t2) => `<button type="button" class="li" data-a="${a}"><span class="grow"><span class="t1">${t1}</span><span class="t2">${t2}</span></span>${icon("next", 20, 'style="color:var(--muted)"')}</button>`;
   return `<div class="screen"><h1 style="margin-bottom:14px">Plus</h1><div class="list">
     ${item("sub-lots", "Troupeaux et UGB", plural(C.D.lots.filter((l) => !l.archived).length, "troupeau", "troupeaux") + " · " + fmtNum(totalUGB, 1) + " UGB")}
@@ -316,7 +317,7 @@ export function viewPlus(S, C) {
     ${item("sub-exports", "Exports et sauvegarde", "CSV, ZIP, sauvegarde JSON, restauration")}
     ${item("sub-settings", "Réglages", "Objectif de repos " + C.settings.restTarget + " j · catégories UGB · thème")}
     ${item("sub-mapcfg", "Parcelles et paddocks", GEO.parcels.length + " parcelles · " + GEO.pads.length + " paddocks · " + fmtNum(GEO.pads.reduce((s, p) => s + p.area, 0), 1) + " ha")}
-  </div><p class="small muted" style="margin:14px 4px">Suivi pâturage v9.1.0 · ${C.D.moves.length} déplacements · ${C.D.foins.length} foin</p></div>`;
+  </div><p class="small muted" style="margin:14px 4px">Suivi pâturage v9.1.1 · ${C.D.moves.length} déplacements · ${C.D.foins.length} foin</p></div>`;
 }
 const subHead = (title, back = "plus-back") => `<div class="row" style="flex-wrap:nowrap;gap:4px;margin:-8px 0 8px -10px"><button type="button" class="iconbtn" data-a="${back}" aria-label="Retour">${icon("back", 24)}</button><h1 style="font-size:24px">${title}</h1></div>`;
 
@@ -324,7 +325,7 @@ function viewLots(S, C) {
   let h = `<div class="screen">${subHead("Troupeaux et UGB")}<div class="list">`;
   for (const l of C.D.lots) {
     const comp = compForDate(C.D.comps, l.id, C.today);
-    h += `<button type="button" class="li" data-a="lot-open" data-lot="${esc(l.id)}">${dot(l.color)}<span class="grow"><span class="t1">${esc(l.name)}${l.archived ? " (archivé)" : ""}</span><span class="t2">${esc(ugbTxt(comp ? ugbOf(comp.items, C.D.cats) : 0))}${comp ? " · composition du " + esc(fmtShort(comp.eff, true)) : ""}</span></span>${icon("next", 20, 'style="color:var(--muted)"')}</button>`;
+    h += `<button type="button" class="li" data-a="lot-open" data-lot="${esc(l.id)}">${dot(l.color)}<span class="grow"><span class="t1">${esc(l.name)}${l.archived ? " (archivé)" : ""}</span><span class="t2">${esc(ugbTxt(comp ? ugbOf(comp.items, C.D.catsAll) : 0))}${comp ? " · composition du " + esc(fmtShort(comp.eff, true)) : ""}</span></span>${icon("next", 20, 'style="color:var(--muted)"')}</button>`;
   }
   if (!C.D.lots.length) h += `<div class="li"><span class="muted">Aucun troupeau.</span></div>`;
   return h + `</div><button type="button" class="btn primary block" style="margin-top:12px" data-a="lot-new">${icon("plus", 20)} Nouveau troupeau</button></div>`;
@@ -334,8 +335,10 @@ function viewLot(S, C) {
   const E = S.lotEdit, l = lotOf(C, E.lotId);
   if (!l) return `<div class="screen">${subHead("Troupeau", "sub-lots")}<div class="notice">Troupeau introuvable.</div></div>`;
   const comps = C.D.comps.filter((c) => c.lotId === l.id).sort((a, b) => (a.eff < b.eff ? 1 : -1));
-  const cats = C.D.cats;
   const draft = E.draft || {};
+  /* catégories proposées + catégories supprimées encore présentes dans la composition chargée */
+  const cats = C.D.catsAll.filter((k) => !k.deleted || Number(draft[k.id]) > 0);
+  const catName = (k) => k.name + (k.deleted ? " (supprimée)" : "");
   let h = `<div class="screen">${subHead(esc(l.name), "sub-lots")}
     <div class="card"><label class="field" style="margin-top:0"><span>Nom</span><input class="input" value="${esc(l.name)}" data-in="lot-name" data-lot="${esc(l.id)}"></label>
     <div class="field"><span>Couleur</span><div class="chips">${LOT_COLORS.map((c) => `<button type="button" class="chip" style="min-width:48px;padding:0;background:${c};border-color:${c === l.color ? "var(--ink)" : c};${c === l.color ? "box-shadow:0 0 0 2px var(--card) inset" : ""}" data-a="lot-color" data-lot="${esc(l.id)}" data-c="${c}" aria-label="Couleur ${c}"></button>`).join("")}</div></div>
@@ -344,13 +347,13 @@ function viewLot(S, C) {
   h += `<h2>Composition</h2><div class="card"><div class="row"><label class="field" style="margin-top:0;flex:1 1 160px"><span>Date d’effet</span><input class="input" type="date" value="${esc(E.eff)}" data-in="comp-eff"></label>
     <div style="flex:1 1 120px"><div class="small muted">UGB</div><div style="font-size:22px;font-weight:700">${fmtNum(ugbOf(draft, cats), 2)}</div></div></div>
     <table class="tbl" style="margin-top:10px"><thead><tr><th>Catégorie</th><th class="r">Coef.</th><th class="r">Effectif</th></tr></thead><tbody>`;
-  for (const c of cats) h += `<tr><td>${esc(c.name)}</td><td class="r">${fmtNum(c.ugb, 2)}</td><td class="r"><input class="input num" type="number" min="0" step="1" inputmode="numeric" value="${draft[c.id] ? esc(draft[c.id]) : ""}" data-in="comp-n" data-cat="${esc(c.id)}" aria-label="Effectif ${esc(c.name)}"></td></tr>`;
+  for (const c of cats) h += `<tr><td>${esc(catName(c))}</td><td class="r">${fmtNum(c.ugb, 2)}</td><td class="r"><input class="input num" type="number" min="0" step="1" inputmode="numeric" value="${draft[c.id] ? esc(draft[c.id]) : ""}" data-in="comp-n" data-cat="${esc(c.id)}" aria-label="Effectif ${esc(c.name)}"></td></tr>`;
   h += `</tbody></table>${cats.length ? "" : '<div class="notice">Aucune catégorie : ajoutez-en dans Réglages.</div>'}
     <div class="row" style="margin-top:12px"><button type="button" class="btn" data-a="comp-dup" ${comps.length ? "" : "disabled"}>Reprendre la dernière</button><button type="button" class="btn primary" style="flex:1 1 auto" data-a="comp-save">Enregistrer la composition</button></div>
     <div class="row" style="margin-top:10px"><input class="input" style="flex:1 1 160px" placeholder="Nouvelle catégorie…" data-in="newcat-name" value="${esc(S.newCat.name)}"><input class="input num" type="number" step="0.01" placeholder="UGB" data-in="newcat-ugb" value="${esc(S.newCat.ugb)}"><button type="button" class="btn" data-a="cat-add">Ajouter</button></div></div>`;
   h += `<h2>Historique</h2>`;
   if (!comps.length) h += `<div class="notice">Aucune composition enregistrée.</div>`;
-  else h += `<div class="list">` + comps.map((c) => `<div class="li"><span class="grow"><span class="t1">${esc(fmtShort(c.eff, true))}</span><span class="t2">${fmtNum(ugbOf(c.items, cats), 2)} UGB · ${esc(cats.filter((k) => c.items && c.items[k.id]).map((k) => c.items[k.id] + " " + k.name).join(", ") || "vide")}</span></span><button type="button" class="btn ghost" data-a="comp-load" data-id="${esc(c.id)}">Charger</button><button type="button" class="btn ghost" style="color:var(--warn-text)" data-a="comp-del" data-id="${esc(c.id)}">Suppr.</button></div>`).join("") + `</div>`;
+  else h += `<div class="list">` + comps.map((c) => `<div class="li"><span class="grow"><span class="t1">${esc(fmtShort(c.eff, true))}</span><span class="t2">${fmtNum(ugbOf(c.items, C.D.catsAll), 2)} UGB · ${esc(C.D.catsAll.filter((k) => c.items && c.items[k.id]).map((k) => c.items[k.id] + " " + catName(k)).join(", ") || "vide")}</span></span><button type="button" class="btn ghost" data-a="comp-load" data-id="${esc(c.id)}">Charger</button><button type="button" class="btn ghost" style="color:var(--warn-text)" data-a="comp-del" data-id="${esc(c.id)}">Suppr.</button></div>`).join("") + `</div>`;
   return h + `</div>`;
 }
 
@@ -395,7 +398,7 @@ function viewSync(S, C) {
 
 function viewExports(S, C) {
   const y = new Date().getFullYear();
-  const years = [...new Set(C.D.moves.map((m) => +m.date.slice(0, 4)).concat([y]))].sort((a, b) => b - a);
+  const years = [...new Set(C.D.moves.concat(C.D.foins).map((m) => +m.date.slice(0, 4)).concat([y]))].sort((a, b) => b - a);
   return `<div class="screen">${subHead("Exports et sauvegarde")}
     <div class="card"><b>Sauvegarde</b><div class="small muted" style="margin-top:4px">Dernière sauvegarde : ${C.lastBackup ? esc(new Date(C.lastBackup).toLocaleString("fr-FR")) : "jamais"} · stockage persistant : ${esc(C.persist)}</div>
     <div class="row" style="margin-top:10px"><label class="small muted" for="exYear">Année</label><select id="exYear" class="input" style="width:auto" data-in="ex-year">${years.map((v) => `<option${v === S.exYear ? " selected" : ""}>${v}</option>`).join("")}</select></div>
@@ -409,7 +412,7 @@ function viewExports(S, C) {
     <button type="button" class="li" data-a="ex-json"><span class="grow"><span class="t1">Sauvegarde complète (JSON)</span><span class="t2">Pour transférer ou restaurer</span></span></button></div>
     <h2>Restaurer</h2><div class="card"><div class="small muted">Fichier de sauvegarde v9 (JSON), ou sauvegarde de l’ancienne version v8 (convertie automatiquement) : remplace les données de cet appareil. Un fichier de réparation, lui, ajoute des éléments sans rien remplacer.</div>
     <button type="button" class="btn block" style="margin-top:10px" data-a="pick-file" data-k="restore">Choisir un fichier…</button>
-    ${C.v8Available ? `<button type="button" class="btn block" style="margin-top:8px" data-a="import-v8-local">${C.D.moves.length ? "Réimporter" : "Importer"} les données v8 de ce navigateur</button>` : ""}
+    ${C.v8Available && (C.sync.state === "off" || C.D.moves.length) ? `<button type="button" class="btn block" style="margin-top:8px" data-a="import-v8-local">${C.D.moves.length ? "Réimporter" : "Importer"} les données v8 de ce navigateur</button>` : ""}
     ${S.restoreMsg ? `<div class="notice" style="margin-top:10px">${esc(S.restoreMsg)}</div>` : ""}</div></div>`;
 }
 
@@ -422,10 +425,10 @@ function viewSettings(S, C) {
     <h2>Catégories et coefficients UGB</h2><div class="card"><table class="tbl"><thead><tr><th>Catégorie</th><th class="r">Coef. UGB</th><th></th></tr></thead><tbody>
     ${cats.map((c) => `<tr><td><input class="input" value="${esc(c.name)}" data-in="cat-name" data-id="${esc(c.id)}" aria-label="Nom"></td><td class="r"><input class="input num" type="number" step="0.01" value="${esc(c.ugb)}" data-in="cat-ugb" data-id="${esc(c.id)}" aria-label="Coefficient"></td><td class="r"><button type="button" class="btn ghost" style="color:var(--warn-text)" data-a="cat-del" data-id="${esc(c.id)}" aria-label="Supprimer ${esc(c.name)}">${icon("close", 20)}</button></td></tr>`).join("")}
     </tbody></table><div class="row" style="margin-top:10px"><input class="input" style="flex:1 1 160px" placeholder="Nouvelle catégorie…" data-in="newcat-name" value="${esc(S.newCat.name)}"><input class="input num" type="number" step="0.01" placeholder="UGB" data-in="newcat-ugb" value="${esc(S.newCat.ugb)}"><button type="button" class="btn" data-a="cat-add">Ajouter</button></div>
-    <div class="small muted" style="margin-top:8px">Une catégorie supprimée n’est plus comptée dans les UGB.</div></div>
+    <div class="small muted" style="margin-top:8px">Une catégorie supprimée n’est plus proposée pour les nouvelles compositions ; les compositions passées qui l’utilisent la comptent toujours. Attention : changer un coefficient recalcule les UGB de tout l’historique.</div></div>
     <h2>Indicateurs</h2><div class="card small">${plural(C.D.lots.length, "troupeau", "troupeaux")} · ${plural(C.D.moves.length, "déplacement", "déplacements")} · ${C.D.lots.filter((l) => { const x = lotLocation(C.D.moves, l.id, C.today); return x && x.loc !== OUT; }).length} au pré · ${GEO.pads.length} paddocks</div>
     <h2>Zone sensible</h2><div class="card"><div class="small muted">Efface toutes les données de cet appareil (pas celles du tableur). Faites une sauvegarde avant.</div><button type="button" class="btn danger block" style="margin-top:10px" data-a="reset-all">Effacer les données de cet appareil…</button>
-    <button type="button" class="btn block" style="margin-top:8px" data-a="load-demo">Charger une démo…</button><div class="small muted" style="margin-top:6px">La démo remplace les données de cet appareil (à utiliser sans synchronisation).</div></div></div>`;
+    <button type="button" class="btn block" style="margin-top:8px" data-a="load-demo">Charger une démo…</button><div class="small muted" style="margin-top:6px">La démo remplace les données de cet appareil ; elle n’est possible que sans synchronisation.</div></div></div>`;
 }
 
 function viewMapCfg(S, C) {
