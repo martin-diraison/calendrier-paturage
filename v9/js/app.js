@@ -8,7 +8,7 @@ import { fromV8, isV8, readV8FromThisBrowser, LOT_COLORS } from "./migrate.js";
 import * as X from "./exports.js";
 import { viewHome, viewMove, viewCarte, viewCal, viewPlus, viewNav, viewSheet, viewToast } from "./views.js";
 
-const VERSION = "9.0.2";
+const VERSION = "9.0.3";
 const app = document.getElementById("app");
 let BASE_CARTE = null;
 const SET = { restTarget: 45, pressureMax: 2, longStay: 10, theme: "light" };
@@ -327,6 +327,7 @@ const A = {
     } };
     render();
   },
+  "pick-file": (d) => { pickFile(d.k); },
   "confirm-ok": async () => { const sh = S.sheet; S.sheet = null; if (sh && sh.run) await sh.run(); else render(); },
 
   /* --- Carte : import --- */
@@ -384,13 +385,30 @@ const I = {
   "cat-ugb": async (v, el) => { const c = store.get("cats", el.dataset.id); if (c) { c.ugb = toNum(v); await store.save("cats", c, { silent: true }); } },
   "em-lot": (v) => { S.sheet.lotId = v; }, "em-date": (v) => { if (v) S.sheet.date = v; }, "em-to": (v) => { S.sheet.to = v; },
   "ef-lot": (v) => { S.sheet.lotId = v; }, "ef-date": (v) => { if (v) S.sheet.date = v; }, "ef-year": (v) => { S.sheet.year = v; },
-  "restore-file": async (v, el) => { const f = el.files && el.files[0]; el.value = ""; if (f) await restoreFile(f); },
-  "file-parcels": (v, el) => { S.files.parcels = el.files[0]; },
-  "file-paddocks": (v, el) => { S.files.paddocks = el.files[0]; },
-  "file-raster": (v, el) => { S.files.raster = el.files[0]; },
-  "file-world": (v, el) => { S.files.world = el.files[0]; }
 };
-const NO_RENDER_ON_CHANGE = new Set(["file-parcels", "file-paddocks", "file-raster", "file-world", "restore-file", "lot-name", "cat-name", "sync-url", "sync-secret", "newcat-name", "newcat-ugb"]);
+
+/* Sélecteur de fichiers persistant, hors de la zone redessinée : sur téléphone, ouvrir le
+   sélecteur met l'appli en arrière-plan ; au retour elle se resynchronise et se redessine,
+   ce qui faisait perdre le fichier choisi avec un champ <input> intégré à l'écran. */
+const filePicker = document.createElement("input");
+filePicker.type = "file";
+filePicker.style.display = "none";
+document.body.appendChild(filePicker);
+const PICK_ACCEPT = { restore: "", parcels: "", paddocks: "", raster: "image/png,image/jpeg", world: "" };
+function pickFile(kind) {
+  filePicker.accept = PICK_ACCEPT[kind] || "";
+  filePicker.value = "";
+  filePicker.onchange = async () => {
+    const f = filePicker.files && filePicker.files[0];
+    if (!f) return;
+    try {
+      if (kind === "restore") await restoreFile(f);
+      else { S.files[kind] = f; render(); }
+    } catch (e) { showError(e); }
+  };
+  filePicker.click();
+}
+const NO_RENDER_ON_CHANGE = new Set(["lot-name", "cat-name", "sync-url", "sync-secret", "newcat-name", "newcat-ugb"]);
 
 /* ---------------- fonctions annexes ---------------- */
 function openLot(lotId, eff) {
@@ -453,8 +471,9 @@ async function restoreFile(file) {
     /* fichier de réparation : ajoute / met à jour des enregistrements, ne supprime rien */
     const list = [];
     for (const e of store.ENTITIES) for (const r of obj.records[e] || []) if (r && r.id) list.push({ entity: e, rec: r });
-    const parts = store.ENTITIES.filter((e) => (obj.records[e] || []).length).map((e) => obj.records[e].length + " " + ({ lots: "troupeau(x)", cats: "catégorie(s)", comps: "composition(s)", moves: "déplacement(s)", foins: "foin" })[e]);
-    S.sheet = { type: "confirm", title: "Ajouter « " + file.name + " » ?", text: (obj.description ? obj.description + " " : "") + "Contenu : " + parts.join(", ") + ". Rien n’est supprimé ; les éléments de même identifiant sont mis à jour.", ok: "Ajouter", run: async () => {
+    const parts = store.ENTITIES.filter((e) => (obj.records[e] || []).length).map((e) => obj.records[e].filter((r) => !r.deleted).length + " " + ({ lots: "troupeau(x)", cats: "catégorie(s)", comps: "composition(s)", moves: "déplacement(s)", foins: "foin" })[e]);
+    const dels = list.filter((x) => x.rec.deleted).map((x) => x.rec.name || (x.entity === "moves" ? "1 déplacement" : x.rec.id));
+    S.sheet = { type: "confirm", title: "Ajouter « " + file.name + " » ?", text: (obj.description ? obj.description + " " : "") + "Contenu : " + parts.join(", ") + "." + (dels.length ? " Supprime aussi : " + dels.join(", ") + "." : " Rien n’est supprimé.") + " Les éléments de même identifiant sont mis à jour.", ok: "Ajouter", run: async () => {
       await store.saveMany(list);
       S.restoreMsg = "Ajout terminé : " + parts.join(", ") + "."; render(); toast("Fichier ajouté");
     } };

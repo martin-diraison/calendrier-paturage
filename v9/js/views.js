@@ -303,7 +303,7 @@ export function viewPlus(S, C) {
     ${item("sub-exports", "Exports et sauvegarde", "CSV, ZIP, sauvegarde JSON, restauration")}
     ${item("sub-settings", "Réglages", "Objectif de repos " + C.settings.restTarget + " j · catégories UGB · thème")}
     ${item("sub-mapcfg", "Parcelles et paddocks", GEO.parcels.length + " parcelles · " + GEO.pads.length + " paddocks · " + fmtNum(GEO.pads.reduce((s, p) => s + p.area, 0), 1) + " ha")}
-  </div><p class="small muted" style="margin:14px 4px">Suivi pâturage v9.0.2 · ${C.D.moves.length} déplacements · ${C.D.foins.length} foin</p></div>`;
+  </div><p class="small muted" style="margin:14px 4px">Suivi pâturage v9.0.3 · ${C.D.moves.length} déplacements · ${C.D.foins.length} foin</p></div>`;
 }
 const subHead = (title, back = "plus-back") => `<div class="row" style="flex-wrap:nowrap;gap:4px;margin:-8px 0 8px -10px"><button type="button" class="iconbtn" data-a="${back}" aria-label="Retour">${icon("back", 24)}</button><h1 style="font-size:24px">${title}</h1></div>`;
 
@@ -395,7 +395,7 @@ function viewExports(S, C) {
     <button type="button" class="li" data-a="ex-csv" data-k="foin"><span class="grow"><span class="t1">Foin (CSV)</span><span class="t2">Round-ballers apportés</span></span></button>
     <button type="button" class="li" data-a="ex-json"><span class="grow"><span class="t1">Sauvegarde complète (JSON)</span><span class="t2">Pour transférer ou restaurer</span></span></button></div>
     <h2>Restaurer</h2><div class="card"><div class="small muted">Fichier de sauvegarde v9 (JSON), ou sauvegarde de l’ancienne version v8 (convertie automatiquement) : remplace les données de cet appareil. Un fichier de réparation, lui, ajoute des éléments sans rien remplacer.</div>
-    <label class="btn block" style="margin-top:10px">Choisir un fichier…<input type="file" accept=".json,application/json" class="sr" data-in="restore-file"></label>
+    <button type="button" class="btn block" style="margin-top:10px" data-a="pick-file" data-k="restore">Choisir un fichier…</button>
     ${C.v8Available ? `<button type="button" class="btn block" style="margin-top:8px" data-a="import-v8-local">${C.D.moves.length ? "Réimporter" : "Importer"} les données v8 de ce navigateur</button>` : ""}
     ${S.restoreMsg ? `<div class="notice" style="margin-top:10px">${esc(S.restoreMsg)}</div>` : ""}</div></div>`;
 }
@@ -421,12 +421,12 @@ function viewMapCfg(S, C) {
   return `<div class="screen">${subHead("Parcelles et paddocks")}
     <div class="list">${GEO.parcels.map((p) => `<div class="li"><span class="grow"><span class="t1">${esc(p.label)}</span><span class="t2">${(byParcel[p.id] || []).length} paddocks · ${fmtNum((byParcel[p.id] || []).reduce((s, x) => s + x.area, 0), 2)} ha</span></span></div>`).join("")}</div>
     <h2>Mettre à jour le découpage</h2><div class="card"><div class="small muted">Fichiers GeoJSON exportés de QGIS (de préférence en Lambert-93). Les identifiants de paddocks doivent rester les mêmes pour conserver l’historique.</div>
-    <label class="field"><span>Parcelles (GeoJSON)</span><input class="input" type="file" accept=".geojson,.json" data-in="file-parcels"></label>
-    <label class="field"><span>Paddocks (GeoJSON)</span><input class="input" type="file" accept=".geojson,.json" data-in="file-paddocks"></label>
+    <div class="field"><span>Parcelles (GeoJSON)</span><button type="button" class="btn" data-a="pick-file" data-k="parcels">${S.files.parcels ? esc(S.files.parcels.name) : "Choisir…"}</button></div>
+    <div class="field"><span>Paddocks (GeoJSON)</span><button type="button" class="btn" data-a="pick-file" data-k="paddocks">${S.files.paddocks ? esc(S.files.paddocks.name) : "Choisir…"}</button></div>
     <div class="row" style="margin-top:10px"><button type="button" class="btn primary" data-a="map-import">Importer le découpage</button>${GEO.custom ? `<button type="button" class="btn" data-a="map-reset">Revenir à la carte d’origine</button>` : ""}</div></div>
     <h2>Fond de carte</h2><div class="card"><div class="small muted">Image (PNG/JPG) et son fichier de géoréférencement (.pgw, .jgw, .wld).</div>
-    <label class="field"><span>Image</span><input class="input" type="file" accept="image/png,image/jpeg" data-in="file-raster"></label>
-    <label class="field"><span>Fichier world</span><input class="input" type="file" accept=".pgw,.jgw,.wld,.tfw,.txt" data-in="file-world"></label>
+    <div class="field"><span>Image</span><button type="button" class="btn" data-a="pick-file" data-k="raster">${S.files.raster ? esc(S.files.raster.name) : "Choisir…"}</button></div>
+    <div class="field"><span>Fichier world</span><button type="button" class="btn" data-a="pick-file" data-k="world">${S.files.world ? esc(S.files.world.name) : "Choisir…"}</button></div>
     <div class="row" style="margin-top:10px"><button type="button" class="btn primary" data-a="raster-import">Importer le fond</button>${GEO.customRaster ? `<button type="button" class="btn" data-a="raster-reset">Revenir au fond d’origine</button>` : ""}</div>
     ${S.mapMsg ? `<div class="notice" style="margin-top:10px">${esc(S.mapMsg)}</div>` : ""}</div></div>`;
 }
