@@ -8,7 +8,7 @@ import { fromV8, isV8, readV8FromThisBrowser, LOT_COLORS } from "./migrate.js";
 import * as X from "./exports.js";
 import { viewHome, viewMove, viewCarte, viewCal, viewPlus, viewNav, viewSheet, viewToast } from "./views.js";
 
-const VERSION = "9.0.3";
+const VERSION = "9.0.4";
 const app = document.getElementById("app");
 let BASE_CARTE = null;
 const SET = { restTarget: 45, pressureMax: 2, longStay: 10, theme: "light" };
@@ -57,7 +57,18 @@ function render() {
   else if (S.screen === "plus") main = viewPlus(S, C);
   else main = viewHome(S, C);
   const nav = S.screen === "move" || (S.screen === "cal" && S.cal.fs) ? "" : viewNav(S);
+  /* zones à défilement horizontal : on garde leur position d'un affichage à l'autre */
+  const hs = {};
+  app.querySelectorAll("[data-hscroll]").forEach((el) => { hs[el.dataset.hscroll] = el.scrollLeft; });
   app.innerHTML = main + nav + viewSheet(S, C) + viewToast(S);
+  app.querySelectorAll("[data-hscroll]").forEach((el) => {
+    if (hs[el.dataset.hscroll] !== undefined) el.scrollLeft = hs[el.dataset.hscroll];
+    const on = el.querySelector(".chip.on");
+    if (on) { /* élément choisi toujours visible, sans faire défiler la page */
+      const l = on.offsetLeft - el.offsetLeft, r = l + on.offsetWidth;
+      if (l < el.scrollLeft || r > el.scrollLeft + el.clientWidth) el.scrollLeft = l - (el.clientWidth - on.offsetWidth) / 2;
+    }
+  });
   if (focus) {
     const el = [...app.querySelectorAll(`[data-in="${focus.key}"]`)].find((x) => (x.dataset.cat || x.dataset.id || x.dataset.lot || "") === focus.sub);
     if (el) { el.focus(); try { if (focus.s !== null && focus.s !== undefined) el.setSelectionRange(focus.s, focus.e); } catch (_) {} }

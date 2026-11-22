@@ -2,7 +2,7 @@
    Avec réseau : les fichiers de l'appli sont pris en ligne (version la plus récente) et la copie
    locale est mise à jour ; si le réseau ne répond pas en 3 s ou est coupé : copie locale.
    Les échanges avec le script Google ne passent jamais par ici. */
-const CACHE = "paturage-v9.0.3";
+const CACHE = "paturage-v9.0.4";
 const SHELL = [
   "./", "index.html", "manifest.webmanifest", "css/app.css", "data/carte.json", "Fond.png", "icon-192.png", "icon-512.png",
   "js/app.js", "js/util.js", "js/geo.js", "js/domain.js", "js/migrate.js", "js/store.js", "js/sync.js", "js/exports.js",

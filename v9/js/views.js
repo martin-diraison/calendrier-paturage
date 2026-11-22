@@ -218,7 +218,7 @@ export function viewCal(S, C) {
     <button type="button" class="iconbtn" data-a="cal-fs" aria-label="${K.fs ? "Quitter le plein écran" : "Plein écran"}">${icon(K.fs ? "close" : "expand", 24)}</button></div>`;
   if (!lots.length) return h + `<div class="notice" style="margin-top:12px">Aucun troupeau.</div></div>`;
   const lot = lotOf(C, K.lotId) || lots.find((l) => !l.archived) || lots[0];
-  h += `<div class="chips scroll" style="margin-top:12px">` + lots.filter((l) => !l.archived || l.id === lot.id).map((l) =>
+  h += `<div class="chips scroll" style="margin-top:12px" data-hscroll="cal-lots">` + lots.filter((l) => !l.archived || l.id === lot.id).map((l) =>
     `<button type="button" class="chip${l.id === lot.id ? " on" : ""}" style="${l.id === lot.id ? `background:${esc(l.color)};border-color:${esc(l.color)}` : ""}" data-a="cal-lot" data-lot="${esc(l.id)}">${esc(l.name)}</button>`).join("") + `</div>`;
   const tl = lotTimeline(C.D.moves, lot.id);
   const years = new Set();
@@ -256,7 +256,7 @@ export function viewCal(S, C) {
     const bg = it.s.end ? color : `repeating-linear-gradient(45deg,${color},${color} 4px,${color}99 4px,${color}99 8px)`;
     return `<button type="button" class="g-bar${on ? " sel" : ""}" style="left:${x(it.c.a)}px;width:${w.toFixed(1)}px;background:${bg}" data-a="cal-sel" data-kind="${kind}" data-id="${esc(it.s.startId)}" aria-label="${esc(padLabel(it.s.loc) + " du " + fmtShort(it.s.start) + (it.s.end ? " au " + fmtShort(it.s.end) : " à aujourd’hui"))}"></button>`;
   };
-  let g = `<div class="card" style="margin-top:12px;padding:10px 4px 10px 10px"><div class="gantt"><div style="width:${TW + 104}px">`;
+  let g = `<div class="card" style="margin-top:12px;padding:10px 4px 10px 10px"><div class="gantt" data-hscroll="cal-gantt-${esc(lot.id)}"><div style="width:${TW + 104}px">`;
   g += `<div class="g-row" style="border-top:none"><div class="g-lab"></div><div class="g-head" style="width:${TW}px">${head}</div></div>`;
   const order = [];
   segs.forEach((x2) => { if (!order.includes(x2.s.loc)) order.push(x2.s.loc); });
@@ -303,7 +303,7 @@ export function viewPlus(S, C) {
     ${item("sub-exports", "Exports et sauvegarde", "CSV, ZIP, sauvegarde JSON, restauration")}
     ${item("sub-settings", "Réglages", "Objectif de repos " + C.settings.restTarget + " j · catégories UGB · thème")}
     ${item("sub-mapcfg", "Parcelles et paddocks", GEO.parcels.length + " parcelles · " + GEO.pads.length + " paddocks · " + fmtNum(GEO.pads.reduce((s, p) => s + p.area, 0), 1) + " ha")}
-  </div><p class="small muted" style="margin:14px 4px">Suivi pâturage v9.0.3 · ${C.D.moves.length} déplacements · ${C.D.foins.length} foin</p></div>`;
+  </div><p class="small muted" style="margin:14px 4px">Suivi pâturage v9.0.4 · ${C.D.moves.length} déplacements · ${C.D.foins.length} foin</p></div>`;
 }
 const subHead = (title, back = "plus-back") => `<div class="row" style="flex-wrap:nowrap;gap:4px;margin:-8px 0 8px -10px"><button type="button" class="iconbtn" data-a="${back}" aria-label="Retour">${icon("back", 24)}</button><h1 style="font-size:24px">${title}</h1></div>`;
 
