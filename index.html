@@ -249,7 +249,7 @@ html[data-theme="light"] #themeToggle{background:rgba(20,30,55,.05)}
 <header>
   <div class="wrap">
     <div class="row" style="justify-content:space-between;align-items:center;flex-wrap:nowrap;gap:8px">
-      <h1>Suivi pâturage — saisie rapide <span class="muted small" style="font-weight:600">v8.32</span></h1>
+      <h1>Suivi pâturage — saisie rapide <span class="muted small" style="font-weight:600">v8.33</span></h1>
       <button id="themeToggle" class="btn small" type="button" title="Basculer clair / sombre" aria-label="Basculer le thème clair ou sombre" style="flex:0 0 auto">☀️</button>
     </div>
     <nav class="tabs" id="mainTabs">
@@ -2385,6 +2385,12 @@ function computeLotStays(lotId){
       if(cur && cur.paddockId===m2.paddockId){
         cur.end=m2.dt; cur.endKind="out"; cur.endMoveId=m2.id;
         stays.push(cur); cur=null;
+      }else if(stays.length && stays[stays.length-1].endKind==="transfer" &&
+               stays[stays.length-1].paddockId===m2.paddockId && stays[stays.length-1].end===m2.dt){
+        // v8.33 (B1) : sortie (auto ou saisie) du même jour qu'une entrée ailleurs = transfert.
+        // Le tri place l'entrée avant la sortie ; on rattache donc la sortie au séjour clôturé.
+        var prevStay=stays[stays.length-1];
+        prevStay.endKind="out"; prevStay.endMoveId=m2.id;
       }else{
         orphanOuts.push({ paddockId:m2.paddockId, dt:m2.dt, moveId:m2.id });
       }
@@ -3619,7 +3625,7 @@ function updateMapLegend(){
 
   if(layer==="pressure"){
     if(titleEl) titleEl.textContent = "Pression";
-    if(lblEl) lblEl.textContent = "0 → " + fmt(pMax,2) + " UGB/ha/an (année " + (MAP_STATS.pressureYear||"") + ")";
+    if(lblEl) lblEl.textContent = "0 → " + fmt(pMax,2) + " UGB/ha/an (" + (MAP_STATS.pressureYear||"") + (MAP_STATS.pressureEnd ? ", au " + MAP_STATS.pressureEnd : "") + ")";
     if(ticks){
       var mid = pMax/2;
       ticks.innerHTML = "<span>0</span><span>" + fmt(mid,2) + "</span><span>" + fmt(pMax,2) + "+</span>";
@@ -3697,7 +3703,10 @@ function computePressureByPaddock(refDate){
   var ref = refDate || nowISO();
   var year = String(ref).slice(0,4);
   var start = year + "-01-01";
-  var end = year + "-12-31"; // année complète
+  var end = year + "-12-31";
+  // v8.33 (B2) : ne compter que les jours jusqu'à la date de référence (pas les jours futurs
+  // d'un séjour en cours). Le résultat reste exprimé en UGB/ha/an (cumul de l'année à date / 365).
+  if(ref < end) end = ref;
 
   var intervals = buildIntervalsRange(start, end);
   var ugbDaysByPad = {};
@@ -4583,7 +4592,7 @@ function renderAll(){
 /* INIT */
 var DATA=null;
 document.addEventListener("DOMContentLoaded", function(){
-  console.log("Suivi pâturage build v8.32 (color-scheme déclaré → empêche le mode sombre forcé du navigateur ; ?theme=light/dark)");
+  console.log("Suivi pâturage build v8.33 (B1 transfert : sortie rattachée au séjour ; B2 pression : jours comptés jusqu’à la date de référence)");
   applyCustomMapIfAny();
   buildPadMeta();
   DATA=loadData();
